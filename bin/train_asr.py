@@ -1,4 +1,5 @@
 import torch
+from torch.nn.utils.rnn import pad_sequence
 from src.solver import BaseSolver
 
 from src.asr import ASR
@@ -20,6 +21,10 @@ class Solver(BaseSolver):
     def fetch_data(self, data):
         ''' Move data to device and compute text seq. length'''
         _, feat, feat_len, txt = data
+
+        if self.paras.upstream is not None:
+            feat, feat_len = self.upstream_extractor(wav=feat, wav_len=feat_len)
+
         feat = feat.to(self.device)
         feat_len = feat_len.to(self.device)
         txt = txt.to(self.device)
@@ -31,8 +36,41 @@ class Solver(BaseSolver):
         ''' Load data for training/validation, store tokenizer and input/output shape'''
         self.tr_set, self.dv_set, self.feat_dim, self.vocab_size, self.tokenizer, msg = \
             load_dataset(self.paras.njobs, self.paras.gpu, self.paras.pin_memory,
-                         self.curriculum > 0, **self.config['data'])
+                         self.curriculum > 0, **self.config['data'],
+                         wav_only=self.paras.upstream is not None)
+        if self.paras.upstream is not None:
+            self.set_upstream()
         self.verbose(msg)
+
+    def set_upstream(self):
+        '''Setup pretrained Upstream model'''
+        self.upstream = torch.hub.load(
+            's3prl/s3prl',
+            self.paras.upstream,
+            feature_selection = self.paras.upstream_feature_selection,
+            refresh = self.paras.upstream_refresh,
+            ckpt = self.paras.upstream_ckpt,
+            force_reload = self.paras.upstream_refresh,
+        ).to(device=self.device)
+        self.upstream.train()
+        self.feat_dim = self.upstream.get_output_dim()
+
+    def upstream_extractor(self, wav, wav_len):
+        def extract(wav, wav_len):
+            feat = self.upstream([w[:l].view(-1).to(self.device) for w, l in zip(wav, wav_len)])
+            feat_len = torch.LongTensor([len(f) for f in feat])
+            feat = pad_sequence(feat, batch_first=True)
+            return feat, feat_len
+
+        if self.paras.upstream_trainable:
+            feat, feat_len = extract(wav, wav_len)
+        else:
+            with torch.no_grad():
+                # feature extraction should always be in eval mode
+                self.upstream.eval()
+                feat, feat_len = extract(wav, wav_len)
+
+        return feat, feat_len
 
     def set_model(self):
         ''' Setup ASR model and optimizer '''
@@ -171,6 +209,8 @@ class Solver(BaseSolver):
         self.model.eval()
         if self.emb_decoder is not None:
             self.emb_decoder.eval()
+        if hasattr(self, 'upstream'):
+            self.upstream.eval()
         dev_wer = {'att': [], 'ctc': []}
 
         for i, data in enumerate(self.dv_set):
@@ -215,3 +255,5 @@ class Solver(BaseSolver):
         self.model.train()
         if self.emb_decoder is not None:
             self.emb_decoder.train()
+        if hasattr(self, 'upstream'):
+            self.upstream.train()

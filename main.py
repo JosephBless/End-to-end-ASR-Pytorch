@@ -40,6 +40,16 @@ parser.add_argument('--reserve-gpu', default=0, type=float,
                     help='Option to reserve GPU ram for training.')
 parser.add_argument('--jit', action='store_true',
                     help='Option for enabling jit in pytorch. (feature in development)')
+parser.add_argument('--upstream',
+                    help='Specify the upstream variant according to torch.hub.list')
+parser.add_argument('--upstream_feature_selection',
+                    help=f'Specify the layer to be extracted as the representation according to torch.hub.help')
+parser.add_argument('--upstream_refresh', action='store_true',
+                    help='Re-download cached ckpts for on-the-fly upstream variants')
+parser.add_argument('--upstream_ckpt', metavar='{PATH,URL,GOOGLE_DRIVE_ID}',
+                    help='Only set when the specified upstream has \'ckpt\' as an argument in torch.hub.help')
+parser.add_argument('--upstream_trainable', '-f', action='store_true',
+                    help='To fine-tune the whole upstream model')
 ###
 paras = parser.parse_args()
 setattr(paras, 'gpu', not paras.cpu)

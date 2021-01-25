@@ -99,6 +99,8 @@ class BaseSolver():
             self.model.load_state_dict(ckpt['model'])
             if self.emb_decoder is not None:
                 self.emb_decoder.load_state_dict(ckpt['emb_decoder'])
+            if hasattr(self, 'upstream'):
+                self.upstream.load_state_dict(ckpt['upstream'])
             # if self.amp:
             #    amp.load_state_dict(ckpt['amp'])
             # Load task-dependent items
@@ -116,6 +118,8 @@ class BaseSolver():
                 self.model.eval()
                 if self.emb_decoder is not None:
                     self.emb_decoder.eval()
+                if hasattr(self, 'upstream'):
+                    self.upstream.eval()
                 self.verbose('Evaluation target = {} (recorded {} = {:.2f} %)'.format(self.paras.load, metric, score))
 
     def verbose(self, msg):
@@ -172,6 +176,8 @@ class BaseSolver():
         #    full_dict['amp'] = self.amp_lib.state_dict()
         if self.emb_decoder is not None:
             full_dict['emb_decoder'] = self.emb_decoder.state_dict()
+        if hasattr(self, 'upstream'):
+            full_dict['upstream'] = self.upstream.state_dict()
 
         torch.save(full_dict, ckpt_path)
         if show_msg:

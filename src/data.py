@@ -1,4 +1,5 @@
 import torch
+import torchaudio
 from functools import partial
 from src.text import load_text_encoder
 from src.audio import create_transform
@@ -11,17 +12,22 @@ HALF_BATCHSIZE_AUDIO_LEN = 800
 HALF_BATCHSIZE_TEXT_LEN = 150
 
 
-def collect_audio_batch(batch, audio_transform, mode):
+def collect_audio_batch(batch, audio_transform, mode, half_batch_size_wav_len=128000):
     '''Collects a batch, should be list of tuples (audio_path <str>, list of int token <list>) 
-       e.g. [(file1,txt1),(file2,txt2),...] '''
+       e.g. [(file1,txt1),(file2,txt2),...]
+       half_batch_size_wav_len 128000 is about 8 secs and 798 frames in kaldi's standard recipe
+    '''
 
     # Bucketed batch should be [[(file1,txt1),(file2,txt2),...]]
     if type(batch[0]) is not tuple:
         batch = batch[0]
     # Make sure that batch size is reasonable
-    first_len = audio_transform(str(batch[0][0])).shape[0]
-    if first_len > HALF_BATCHSIZE_AUDIO_LEN and mode == 'train':
-        batch = batch[:len(batch)//2]
+    first_len, first_dim = audio_transform(str(batch[0][0])).shape
+    if mode == 'train':
+        frame_half_condition = (first_dim > 1 and first_len > HALF_BATCHSIZE_AUDIO_LEN)
+        wav_half_condition = (first_dim == 1 and first_len > half_batch_size_wav_len)
+        if frame_half_condition or wav_half_condition:
+            batch = batch[:len(batch)//2]
 
     # Read batch
     file, audio_feat, audio_len, text = [], [], [], []
@@ -130,11 +136,20 @@ def create_textset(tokenizer, train_split, dev_split, name, path, bucketing, bat
     return tr_set, dv_set, tr_loader_bs, batch_size, msg_list
 
 
-def load_dataset(n_jobs, use_gpu, pin_memory, ascending, corpus, audio, text):
+def load_dataset(n_jobs, use_gpu, pin_memory, ascending, corpus, audio, text, wav_only=False):
     ''' Prepare dataloader for training/validation'''
 
     # Audio feature extractor
-    audio_transform, feat_dim = create_transform(audio.copy())
+    if not wav_only:
+        audio_transform, feat_dim = create_transform(audio.copy())
+    else:
+        def audio_reader(filepath):
+            wav, sample_rate = torchaudio.load(filepath)
+            return wav.reshape(-1, 1)
+        audio = audio.copy()
+        audio['feat_type'] = 'waveform'
+        audio_transform, feat_dim = audio_reader, 1
+
     # Text tokenizer
     tokenizer = load_text_encoder(**text)
     # Dataset (in testing mode, tr_set=dv_set, dv_set=tt_set)
