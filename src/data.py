@@ -3,7 +3,8 @@ import torchaudio
 from functools import partial
 from src.text import load_text_encoder
 from src.audio import create_transform
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, DistributedSampler
+from torch.distributed import is_initialized, get_world_size, get_rank
 from torch.nn.utils.rnn import pad_sequence
 
 # Batch size will be halfed if the longest wavefile surpasses threshold
@@ -163,9 +164,15 @@ def load_dataset(n_jobs, use_gpu, pin_memory, ascending, corpus, audio, text, wa
     # Shuffle/drop applied to training set only
     shuffle = (mode == 'train' and not ascending)
     drop_last = shuffle
+
+    if is_initialized():
+        tr_sampler = DistributedSampler(tr_set, num_replicas=get_world_size(),
+            rank=get_rank(), shuffle=shuffle, drop_last=drop_last)
+        shuffle = False
+
     # Create data loader
     tr_set = DataLoader(tr_set, batch_size=tr_loader_bs, shuffle=shuffle, drop_last=drop_last, collate_fn=collect_tr,
-                        num_workers=n_jobs, pin_memory=use_gpu)
+                        num_workers=n_jobs, pin_memory=use_gpu, sampler=tr_sampler if is_initialized() else None)
     dv_set = DataLoader(dv_set, batch_size=dv_loader_bs, shuffle=False, drop_last=False, collate_fn=collect_dv,
                         num_workers=n_jobs, pin_memory=pin_memory)
     # Messages to show

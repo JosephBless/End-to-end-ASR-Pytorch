@@ -64,8 +64,14 @@ All the parameters related to training/decoding will be stored in a yaml file. H
 ### Step 2. Training (End-to-end ASR or RNN-LM) 
 
 Once the config file is ready, run the following command to train end-to-end ASR (or language model)
+- Single GPU
 ```
 python3 main.py --config <path of config file> 
+```
+- Multiple GPUs (only support training ASR)
+```
+n_gpu=4
+python3 -m torch.distributed.launch --nproc_per_node $n_gpu main.py --config <path of config file> 
 ```
 
 For example, train an ASR on LibriSpeech and watch the log with

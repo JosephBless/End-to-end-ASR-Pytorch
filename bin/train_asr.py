@@ -1,9 +1,11 @@
 import torch
 from torch.nn.utils.rnn import pad_sequence
-from src.solver import BaseSolver
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.distributed import is_initialized, get_rank, get_world_size
 
 from src.asr import ASR
 from src.optim import Optimizer
+from src.solver import BaseSolver
 from src.data import load_dataset
 from src.util import human_format, cal_er, feat_to_fig
 
@@ -52,6 +54,11 @@ class Solver(BaseSolver):
             ckpt = self.paras.upstream_ckpt,
             force_reload = self.paras.upstream_refresh,
         ).to(device=self.device)
+
+        if is_initialized():
+            self.upstream = DDP(self.upstream, device_ids=[self.paras.local_rank], find_unused_parameters=True)
+            setattr(self.upstream, 'get_output_dim', self.upstream.module.get_output_dim)
+
         self.upstream.train()
         self.feat_dim = self.upstream.get_output_dim()
 
@@ -78,6 +85,12 @@ class Solver(BaseSolver):
         init_adadelta = self.config['hparas']['optimizer'] == 'Adadelta'
         self.model = ASR(self.feat_dim, self.vocab_size, init_adadelta, **
                          self.config['model']).to(self.device)
+        
+        if is_initialized():
+            self.model = DDP(self.model, device_ids=[self.paras.local_rank], find_unused_parameters=True)
+            setattr(self.model, 'create_msg', self.model.module.create_msg)
+            setattr(self.model, 'ctc_weight', self.model.module.ctc_weight)
+
         self.verbose(self.model.create_msg())
         model_paras = [{'params': self.model.parameters()}]
 
@@ -128,6 +141,10 @@ class Solver(BaseSolver):
                 self.tr_set, _, _, _, _, _ = \
                     load_dataset(self.paras.njobs, self.paras.gpu, self.paras.pin_memory,
                                  False, **self.config['data'])
+            
+            if is_initialized():
+                self.tr_set.sampler.set_epoch(n_epochs)
+
             for data in self.tr_set:
                 # Pre-step : update tf_rate/lr_rate and do zero_grad
                 tf_rate = self.optimizer.pre_step(self.step)
@@ -140,7 +157,7 @@ class Solver(BaseSolver):
                 # Forward model
                 # Note: txt should NOT start w/ <sos>
                 ctc_output, encode_len, att_output, att_align, dec_state = \
-                    self.model(feat, feat_len, max(txt_len), tf_rate=tf_rate,
+                    self.model(feat, feat_len, max(txt_len).item(), tf_rate=tf_rate,
                                teacher=txt, get_dec_state=self.emb_reg)
 
                 # Plugins
@@ -202,9 +219,14 @@ class Solver(BaseSolver):
                 if self.step > self.max_step:
                     break
             n_epochs += 1
-        self.log.close()
+
+        if hasattr(self, 'log'):
+            self.log.close()
 
     def validate(self):
+        if is_initialized() and get_rank() > 0:
+            return
+
         # Eval mode
         self.model.eval()
         if self.emb_decoder is not None:

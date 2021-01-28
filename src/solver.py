@@ -5,6 +5,7 @@ import math
 import yaml
 import torch
 from torch.utils.tensorboard import SummaryWriter
+from torch.distributed import is_initialized, get_rank, get_world_size
 
 from src.option import default_hparas
 from src.util import human_format, Timer
@@ -41,15 +42,17 @@ class BaseSolver():
         self.emb_decoder = None
 
         if mode == 'train':
-            # Filepath setup
-            os.makedirs(paras.ckpdir, exist_ok=True)
-            self.ckpdir = os.path.join(paras.ckpdir, self.exp_name)
-            os.makedirs(self.ckpdir, exist_ok=True)
+            if not is_initialized() or get_rank() == 0:
+                # Filepath setup
+                os.makedirs(paras.ckpdir, exist_ok=True)
+                self.ckpdir = os.path.join(paras.ckpdir, self.exp_name)
+                os.makedirs(self.ckpdir, exist_ok=True)
 
-            # Logger settings
-            self.logdir = os.path.join(paras.logdir, self.exp_name)
-            self.log = SummaryWriter(
-                self.logdir, flush_secs=self.TB_FLUSH_FREQ)
+                # Logger settings
+                self.logdir = os.path.join(paras.logdir, self.exp_name)
+                self.log = SummaryWriter(
+                    self.logdir, flush_secs=self.TB_FLUSH_FREQ)
+
             self.timer = Timer()
 
             # Hyperparameters
@@ -61,9 +64,10 @@ class BaseSolver():
             self.verbose('Loading data... large corpus may took a while.')
 
         elif mode == 'test':
-            # Output path
-            os.makedirs(paras.outdir, exist_ok=True)
-            self.ckpdir = os.path.join(paras.outdir, self.exp_name)
+            if not is_initialized() or get_rank() == 0:
+                # Output path
+                os.makedirs(paras.outdir, exist_ok=True)
+                self.ckpdir = os.path.join(paras.outdir, self.exp_name)
 
             # Load training config to get acoustic feat, text encoder and build model
             self.src_config = yaml.load(
@@ -124,6 +128,8 @@ class BaseSolver():
 
     def verbose(self, msg):
         ''' Verbose function for print information to stdout'''
+        if is_initialized() and get_rank() > 0: return
+
         if self.paras.verbose:
             if type(msg) == list:
                 for m in msg:
@@ -133,6 +139,8 @@ class BaseSolver():
 
     def progress(self, msg):
         ''' Verbose function for updating progress on stdout (do not include newline) '''
+        if is_initialized() and get_rank() > 0: return
+
         if self.paras.verbose:
             sys.stdout.write("\033[K")  # Clear line
             print('[{}] {}'.format(human_format(self.step), msg), end='\r')
@@ -143,6 +151,8 @@ class BaseSolver():
             log_name  - <str> Name of tensorboard variable 
             log_value - <dict>/<array> Value of variable (e.g. dict of losses), passed if value = None
         '''
+        if is_initialized() and get_rank() > 0: return
+
         if type(log_dict) is dict:
             log_dict = {key: val for key, val in log_dict.items() if (
                 val is not None and not math.isnan(val))}
@@ -164,6 +174,8 @@ class BaseSolver():
             f_name - <str> the name phnof ckpt file (w/o prefix) to store, overwrite if existed
             score  - <float> The value of metric used to evaluate model
         '''
+        if is_initialized() and get_rank() > 0: return
+
         ckpt_path = os.path.join(self.ckpdir, f_name)
         full_dict = {
             "model": self.model.state_dict(),

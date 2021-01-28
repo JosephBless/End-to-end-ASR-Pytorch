@@ -25,8 +25,8 @@ hparas:                                   # Experiment hyper-parameters
   tf_start: 1.0
   tf_end: 1.0
   tf_step: 500000
-  optimizer: 'Adadelta'
-  lr: 1.0
+  optimizer: 'Adam'
+  lr: 1.0e-4
   eps: 0.00000001                         # 1e-8
   lr_scheduler: 'fixed'                   # 'fixed'/'warmup'
   curriculum: 0
@@ -34,9 +34,9 @@ hparas:                                   # Experiment hyper-parameters
 model:                                    # Model architecture
   ctc_weight: 1.0                         # Weight for CTC loss
   encoder:
-    prenet: 'cnn'                         # 'vgg'/'cnn'/''
+    prenet: ''                         # 'vgg'/'cnn'/''
     # vgg: True                             # 4x reduction on time feature extraction
-    module: 'LSTM'                        # 'LSTM'/'GRU'/'Transformer'
+    module: ''                        # 'LSTM'/'GRU'/'Transformer'
     bidirection: True
     dim: [128]
     dropout: [0]

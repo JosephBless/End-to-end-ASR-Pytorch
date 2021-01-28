@@ -50,12 +50,22 @@ parser.add_argument('--upstream_ckpt', metavar='{PATH,URL,GOOGLE_DRIVE_ID}',
                     help='Only set when the specified upstream has \'ckpt\' as an argument in torch.hub.help')
 parser.add_argument('--upstream_trainable', '-f', action='store_true',
                     help='To fine-tune the whole upstream model')
+parser.add_argument('--local_rank', type=int,
+                    help=f'The GPU id this process should use while distributed training. \
+                           None when not launched by torch.distributed.launch')
+parser.add_argument('--backend', default='nccl', help='The backend for distributed training')
+
 ###
 paras = parser.parse_args()
 setattr(paras, 'gpu', not paras.cpu)
 setattr(paras, 'pin_memory', not paras.no_pin)
 setattr(paras, 'verbose', not paras.no_msg)
 config = yaml.load(open(paras.config, 'r'), Loader=yaml.FullLoader)
+
+# always use torch.distributed.launch
+if paras.local_rank is not None:
+    torch.cuda.set_device(paras.local_rank)
+    torch.distributed.init_process_group(paras.backend)
 
 np.random.seed(paras.seed)
 torch.manual_seed(paras.seed)
