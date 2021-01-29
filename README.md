@@ -68,10 +68,15 @@ Once the config file is ready, run the following command to train end-to-end ASR
 ```
 python3 main.py --config <path of config file> 
 ```
-- Multiple GPUs (only support training ASR)
+- Multiple GPUs
 ```
 n_gpu=4
 python3 -m torch.distributed.launch --nproc_per_node $n_gpu main.py --config <path of config file> 
+```
+- Finetune pretrained models with multiple GPUs (the config is still under development)
+```
+n_gpu=4
+python3 -m torch.distributed.launch --nproc_per_node $n_gpu main.py --config config/libri/finetune_example.yaml --upstream wav2vec2 --upstream_trainable
 ```
 
 For example, train an ASR on LibriSpeech and watch the log with

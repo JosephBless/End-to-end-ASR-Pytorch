@@ -5,7 +5,7 @@ data:
     train_split: ['train-clean-100','train-clean-360'] # Name of data splits to be used as training set
     dev_split: ['dev-clean']              # Name of data splits to be used as validation set
     bucketing: True                       # Enable/Disable bucketing 
-    batch_size: 16
+    batch_size: 4
   audio:                                  # Attributes of audio feature
     feat_type: 'fbank'
     feat_dim:  40
