@@ -46,6 +46,12 @@ class Solver(BaseSolver):
 
     def set_upstream(self):
         '''Setup pretrained Upstream model'''
+        if is_initialized() and get_rank() > 0:
+            # While rank 0 is downloading, all other processes wait and set
+            # their upstream_refresh to False to prevent double downloading
+            self.paras.upstream_refresh = False
+            torch.distributed.barrier()
+
         self.upstream = torch.hub.load(
             's3prl/s3prl',
             self.paras.upstream,
@@ -54,6 +60,11 @@ class Solver(BaseSolver):
             ckpt = self.paras.upstream_ckpt,
             force_reload = self.paras.upstream_refresh,
         ).to(device=self.device)
+
+        if is_initialized() and get_rank() == 0:
+            # After rank 0 downloaded the latest checkpoints, notify
+            # others to use this newly downloaded checkpoints
+            torch.distributed.barrier()
 
         if is_initialized():
             self.upstream = DDP(self.upstream, device_ids=[self.paras.local_rank], find_unused_parameters=True)
