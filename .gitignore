@@ -124,3 +124,7 @@ run.sh
 
 # swap file
 *.swp
+
+# experiment results
+*.pth
+*.csv
