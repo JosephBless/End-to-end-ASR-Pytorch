@@ -226,7 +226,7 @@ def load_text_encoder(mode, vocab_file):
         return CharacterTextEncoder.load_from_file(vocab_file)
     elif mode == "subword":
         return SubwordTextEncoder.load_from_file(vocab_file)
-    elif mode == "word":
+    elif mode in ["word", "phoneme"]:
         return WordTextEncoder.load_from_file(vocab_file)
     elif mode.startswith("bert-"):
         return BertTextEncoder.load_from_file(mode)
