@@ -327,7 +327,6 @@ class Encoder(nn.Module):
         assert len(sample_rate) == len(dropout), 'Number of layer mismatch'
         assert len(dropout) == len(dim), 'Number of layer mismatch'
         num_layers = len(dim)
-        assert num_layers >= 1, 'Encoder should have at least 1 layer'
 
         # Construct model
         module_list = []
