@@ -4,6 +4,7 @@ import yaml
 import torch
 import argparse
 import numpy as np
+from torch.distributed import get_rank, get_world_size
 
 # For reproducibility, comment these may speed up training
 torch.backends.cudnn.deterministic = True
@@ -66,6 +67,11 @@ config = yaml.load(open(paras.config, 'r'), Loader=yaml.FullLoader)
 if paras.local_rank is not None:
     torch.cuda.set_device(paras.local_rank)
     torch.distributed.init_process_group(paras.backend)
+    # Since DDP uses Allreduce to average the graident between process,
+    # to keep the same behavior across different GPU num, batch_size and
+    # lr per process has to be adjusted.
+    config['data']['corpus']['batch_size'] /= get_world_size()
+    config['hparas']['lr'] *= get_world_size()
 
 np.random.seed(paras.seed)
 torch.manual_seed(paras.seed)
