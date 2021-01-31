@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
+import os
 import yaml
 import torch
 import argparse
@@ -51,6 +52,7 @@ parser.add_argument('--upstream_ckpt', metavar='{PATH,URL,GOOGLE_DRIVE_ID}',
                     help='Only set when the specified upstream has \'ckpt\' as an argument in torch.hub.help')
 parser.add_argument('--upstream_trainable', '-f', action='store_true',
                     help='To fine-tune the whole upstream model')
+parser.add_argument('--cache_dir', help='Explicitly set the dir for torch.hub')
 parser.add_argument('--local_rank', type=int,
                     help=f'The GPU id this process should use while distributed training. \
                            None when not launched by torch.distributed.launch')
@@ -63,7 +65,10 @@ setattr(paras, 'pin_memory', not paras.no_pin)
 setattr(paras, 'verbose', not paras.no_msg)
 config = yaml.load(open(paras.config, 'r'), Loader=yaml.FullLoader)
 
-# always use torch.distributed.launch
+if paras.cache_dir is not None:
+    os.makedirs(paras.cache_dir, exist_ok=True)
+    torch.hub.set_dir(paras.cache_dir)
+
 if paras.local_rank is not None:
     torch.cuda.set_device(paras.local_rank)
     torch.distributed.init_process_group(paras.backend)
