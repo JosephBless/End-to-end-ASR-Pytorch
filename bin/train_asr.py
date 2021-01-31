@@ -159,7 +159,7 @@ class Solver(BaseSolver):
         self.timer.set()
 
         accumulate_step = 1
-        gradient_accumulate = self.config['hparas']['gradient_accumulate']
+        gradient_accumulate = self.config['hparas'].get('gradient_accumulate', 1)
 
         while self.step < self.max_step:
             # Renew dataloader to enable random sampling

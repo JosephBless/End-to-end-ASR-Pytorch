@@ -67,9 +67,12 @@ def collect_text_batch(batch, mode):
     return text
 
 
-def create_dataset(tokenizer, ascending, name, path, bucketing, batch_size, eval_batch_size,
+def create_dataset(tokenizer, ascending, name, path, bucketing, batch_size, eval_batch_size=None,
                    train_split=None, dev_split=None, test_split=None):
     ''' Interface for creating all kinds of dataset'''
+
+    if eval_batch_size is None:
+        eval_batch_size = batch_size
 
     # Recognize corpus
     if name.lower() == "librispeech":
