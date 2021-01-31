@@ -35,6 +35,8 @@ class Optimizer():
             self.lr_scheduler = None
             self.opt = opt(parameters, lr=lr, eps=eps)  # ToDo: 1e-8 better?
 
+        setattr(self, 'param_groups', self.opt.param_groups)
+
     def get_opt_state_dict(self):
         return self.opt.state_dict()
 

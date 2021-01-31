@@ -28,7 +28,6 @@ class BaseSolver():
             setattr(self, k, v)
         self.device = torch.device(
             'cuda') if self.paras.gpu and torch.cuda.is_available() else torch.device('cpu')
-        self.amp = paras.amp
 
         # Name experiment
         self.exp_name = paras.name
@@ -57,6 +56,7 @@ class BaseSolver():
 
             # Hyperparameters
             self.step = 0
+            self.n_epochs = 0
             self.valid_step = config['hparas']['valid_step']
             self.max_step = config['hparas']['max_step']
 
@@ -105,8 +105,7 @@ class BaseSolver():
                 self.emb_decoder.load_state_dict(ckpt['emb_decoder'])
             if hasattr(self, 'upstream'):
                 self.upstream.load_state_dict(ckpt['upstream'])
-            # if self.amp:
-            #    amp.load_state_dict(ckpt['amp'])
+
             # Load task-dependent items
             metric = "None"
             score = 0.0
@@ -183,28 +182,18 @@ class BaseSolver():
             "global_step": self.step,
             metric: score
         }
-        # Additional modules to save
-        # if self.amp:
-        #    full_dict['amp'] = self.amp_lib.state_dict()
+
         if self.emb_decoder is not None:
             full_dict['emb_decoder'] = self.emb_decoder.state_dict()
-        if hasattr(self, 'upstream'):
+        if self.paras.upstream_trainable:
             full_dict['upstream'] = self.upstream.state_dict()
+        if hasattr(self, 'scaler'):
+            full_dict['scaler'] = self.scaler.state_dict()
 
         torch.save(full_dict, ckpt_path)
         if show_msg:
             self.verbose("Saved checkpoint (step = {}, {} = {:.2f}) and status @ {}".
                          format(human_format(self.step), metric, score, ckpt_path))
-
-    def enable_apex(self):
-        if self.amp:
-            # Enable mixed precision computation (ToDo: Save/Load amp)
-            from apex import amp
-            self.amp_lib = amp
-            self.verbose(
-                "AMP enabled (check https://github.com/NVIDIA/apex for more details).")
-            self.model, self.optimizer.opt = self.amp_lib.initialize(
-                self.model, self.optimizer.opt, opt_level='O1')
 
     # ----------------------------------- Abtract Methods ------------------------------------------ #
     @abc.abstractmethod
