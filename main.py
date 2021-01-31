@@ -80,7 +80,7 @@ if paras.local_rank is not None:
     # lr per process has to be adjusted accordingly.
     effective_batch_size = config['data']['corpus']['batch_size']
     effective_lr = config['hparas']['lr']
-    gradient_accumulate = config['hparas']['gradient_accumulate']
+    gradient_accumulate = config['hparas'].get('gradient_accumulate', 1)
     assert effective_batch_size % (get_world_size() * gradient_accumulate) == 0
     config['data']['corpus']['batch_size'] = effective_batch_size // get_world_size() // gradient_accumulate
     config['hparas']['lr'] = effective_lr * get_world_size()
