@@ -71,14 +71,18 @@ if paras.cache_dir is not None:
     os.makedirs(paras.cache_dir, exist_ok=True)
     torch.hub.set_dir(paras.cache_dir)
 
+# When torch.distributed.launch is used
 if paras.local_rank is not None:
     torch.cuda.set_device(paras.local_rank)
     torch.distributed.init_process_group(paras.backend)
     # Since DDP uses Allreduce to average the graident between process,
     # to keep the same behavior across different GPU num, batch_size and
-    # lr per process has to be adjusted.
-    config['data']['corpus']['batch_size'] /= get_world_size()
-    config['hparas']['lr'] *= get_world_size()
+    # lr per process has to be adjusted accordingly.
+    effective_batch_size = config['data']['corpus']['batch_size']
+    effective_lr = config['hparas']['lr']
+    assert effective_batch_size % get_world_size() == 0
+    config['data']['corpus']['batch_size'] = effective_batch_size // get_world_size()
+    config['hparas']['lr'] = effective_lr * get_world_size()
 
 np.random.seed(paras.seed)
 torch.manual_seed(paras.seed)
