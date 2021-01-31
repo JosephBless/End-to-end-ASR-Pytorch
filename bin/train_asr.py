@@ -158,6 +158,9 @@ class Solver(BaseSolver):
         ctc_loss, att_loss, emb_loss = None, None, None
         self.timer.set()
 
+        accumulate_step = 1
+        gradient_accumulate = self.config['hparas']['gradient_accumulate']
+
         while self.step < self.max_step:
             # Renew dataloader to enable random sampling
             if self.curriculum > 0 and self.n_epochs == self.curriculum:
@@ -216,7 +219,11 @@ class Solver(BaseSolver):
 
                 # Backprop
                 self.timer.set()
-                self.scaler.scale(total_loss).backward()
+                self.scaler.scale(total_loss / gradient_accumulate).backward()
+
+                accumulate_step += 1
+                if accumulate_step % gradient_accumulate > 0:
+                    continue
 
                 self.scaler.unscale_(self.optimizer)
                 grad_norm = torch.nn.utils.clip_grad_norm_(self.params_list, self.GRAD_CLIP)
@@ -316,6 +323,4 @@ class Solver(BaseSolver):
             self.emb_decoder.train()
         if hasattr(self, 'upstream') and upstream_training:
             self.upstream.train()
-
-        torch.cuda.empty_cache()
 
