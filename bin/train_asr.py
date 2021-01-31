@@ -70,7 +70,11 @@ class Solver(BaseSolver):
             self.upstream = DDP(self.upstream, device_ids=[self.paras.local_rank], find_unused_parameters=True)
             setattr(self.upstream, 'get_output_dim', self.upstream.module.get_output_dim)
 
-        self.upstream.train()
+        if self.paras.upstream_trainable:
+            self.upstream.train()
+        else:
+            self.upstream.eval()
+
         self.feat_dim = self.upstream.get_output_dim()
 
     def upstream_extractor(self, wav, wav_len):
@@ -80,12 +84,10 @@ class Solver(BaseSolver):
             feat = pad_sequence(feat, batch_first=True)
             return feat, feat_len
 
-        if self.paras.upstream_trainable:
+        if self.upstream.training:
             feat, feat_len = extract(wav, wav_len)
         else:
             with torch.no_grad():
-                # feature extraction should always be in eval mode
-                self.upstream.eval()
                 feat, feat_len = extract(wav, wav_len)
 
         return feat, feat_len
@@ -96,7 +98,7 @@ class Solver(BaseSolver):
         init_adadelta = self.config['hparas']['optimizer'] == 'Adadelta'
         self.model = ASR(self.feat_dim, self.vocab_size, init_adadelta, **
                          self.config['model']).to(self.device)
-        
+
         if is_initialized():
             self.model = DDP(self.model, device_ids=[self.paras.local_rank], find_unused_parameters=True)
             setattr(self.model, 'create_msg', self.model.module.create_msg)
@@ -152,7 +154,7 @@ class Solver(BaseSolver):
                 self.tr_set, _, _, _, _, _ = \
                     load_dataset(self.paras.njobs, self.paras.gpu, self.paras.pin_memory,
                                  False, **self.config['data'])
-            
+
             if is_initialized():
                 self.tr_set.sampler.set_epoch(n_epochs)
 
@@ -243,6 +245,7 @@ class Solver(BaseSolver):
         if self.emb_decoder is not None:
             self.emb_decoder.eval()
         if hasattr(self, 'upstream'):
+            upstream_training = self.upstream.training
             self.upstream.eval()
         dev_wer = {'att': [], 'ctc': []}
 
@@ -288,5 +291,6 @@ class Solver(BaseSolver):
         self.model.train()
         if self.emb_decoder is not None:
             self.emb_decoder.train()
-        if hasattr(self, 'upstream'):
+        if hasattr(self, 'upstream') and upstream_training:
             self.upstream.train()
+
