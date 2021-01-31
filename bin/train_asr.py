@@ -217,7 +217,7 @@ class Solver(BaseSolver):
                 # Backprop
                 self.timer.set()
                 self.scaler.scale(total_loss).backward()
-                
+
                 self.scaler.unscale_(self.optimizer)
                 grad_norm = torch.nn.utils.clip_grad_norm_(self.params_list, self.GRAD_CLIP)
                 self.scaler.step(self.optimizer)
@@ -260,6 +260,8 @@ class Solver(BaseSolver):
     def validate(self):
         if is_initialized() and get_rank() > 0:
             return
+
+        torch.cuda.empty_cache()
 
         # Eval mode
         self.model.eval()
@@ -314,4 +316,6 @@ class Solver(BaseSolver):
             self.emb_decoder.train()
         if hasattr(self, 'upstream') and upstream_training:
             self.upstream.train()
+
+        torch.cuda.empty_cache()
 
