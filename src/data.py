@@ -13,10 +13,13 @@ HALF_BATCHSIZE_AUDIO_LEN = 800
 HALF_BATCHSIZE_TEXT_LEN = 150
 
 
-def collect_audio_batch(batch, audio_transform, mode, half_batch_size_wav_len=128000):
+def collect_audio_batch(batch, audio_transform, mode, half_batch_size_wav_len=12800000):
     '''Collects a batch, should be list of tuples (audio_path <str>, list of int token <list>) 
        e.g. [(file1,txt1),(file2,txt2),...]
-       half_batch_size_wav_len 128000 is about 8 secs and 798 frames in kaldi's standard recipe
+       half_batch_size_wav_len 12800000 is about 800 secs and 79800 frames when shift length 10ms
+       This defeault setting is used to NOT halving batch size since we want a fixed batch size
+       for a comparative study. The original repo halves the batch size just to make the training
+       fitted into a single GPU.
     '''
 
     # Bucketed batch should be [[(file1,txt1),(file2,txt2),...]]
@@ -27,7 +30,7 @@ def collect_audio_batch(batch, audio_transform, mode, half_batch_size_wav_len=12
     if mode == 'train':
         frame_half_condition = (first_dim > 1 and first_len > HALF_BATCHSIZE_AUDIO_LEN)
         wav_half_condition = (first_dim == 1 and first_len > half_batch_size_wav_len)
-        if frame_half_condition or wav_half_condition:
+        if (frame_half_condition or wav_half_condition) and len(batch) > 1:
             batch = batch[:len(batch)//2]
 
     # Read batch
@@ -58,7 +61,7 @@ def collect_text_batch(batch, mode):
     if type(batch[0][0]) is list:
         batch = batch[0]
     # Half batch size if input to long
-    if len(batch[0]) > HALF_BATCHSIZE_TEXT_LEN and mode == 'train':
+    if len(batch[0]) > HALF_BATCHSIZE_TEXT_LEN and mode == 'train' and len(batch) > 1:
         batch = batch[:len(batch)//2]
     # Read batch
     text = [torch.LongTensor(b) for b in batch]
@@ -137,7 +140,7 @@ def create_textset(tokenizer, train_split, dev_split, name, path, bucketing, bat
     return tr_set, dv_set, tr_loader_bs, batch_size, msg_list
 
 
-def load_dataset(n_jobs, use_gpu, pin_memory, ascending, corpus, audio, text, wav_only=False):
+def load_dataset(n_jobs, use_gpu, pin_memory, ascending, corpus, audio, text, wav_only=False, dryrun=False):
     ''' Prepare dataloader for training/validation'''
 
     # Audio feature extractor
@@ -162,7 +165,7 @@ def load_dataset(n_jobs, use_gpu, pin_memory, ascending, corpus, audio, text, wa
     collect_dv = partial(collect_audio_batch,
                          audio_transform=audio_transform, mode='test')
     # Shuffle/drop applied to training set only
-    shuffle = (mode == 'train' and not ascending)
+    shuffle = (mode == 'train' and not ascending) and not dryrun
     drop_last = shuffle
 
     if is_initialized():

@@ -41,8 +41,6 @@ class Solver(BaseSolver):
         # Optimizer
         self.optimizer = Optimizer(
             self.model.parameters(), **self.config['hparas'])
-        # Enable AMP if needed
-        self.enable_apex()
         # load pre-trained model
         if self.paras.load:
             self.load_ckpt()
