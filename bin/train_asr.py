@@ -39,7 +39,8 @@ class Solver(BaseSolver):
         self.tr_set, self.dv_set, self.feat_dim, self.vocab_size, self.tokenizer, msg = \
             load_dataset(self.paras.njobs, self.paras.gpu, self.paras.pin_memory,
                          self.curriculum > 0, **self.config['data'],
-                         wav_only=self.paras.upstream is not None)
+                         wav_only=self.paras.upstream is not None,
+                         dryrun=self.paras.dryrun)
         if self.paras.upstream is not None:
             self.set_upstream()
         self.verbose(msg)

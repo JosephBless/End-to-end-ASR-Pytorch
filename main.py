@@ -57,6 +57,8 @@ parser.add_argument('--local_rank', type=int,
                     help=f'The GPU id this process should use while distributed training. \
                            None when not launched by torch.distributed.launch')
 parser.add_argument('--backend', default='nccl', help='The backend for distributed training')
+parser.add_argument('--dryrun', action='store_true',
+                    help='Iterate the dataset decendingly by sequence length to make sure the training will not OOM')
 
 ###
 paras = parser.parse_args()
