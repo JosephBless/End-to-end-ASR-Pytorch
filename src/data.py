@@ -27,7 +27,7 @@ def collect_audio_batch(batch, audio_transform, mode, half_batch_size_wav_len=12
     if mode == 'train':
         frame_half_condition = (first_dim > 1 and first_len > HALF_BATCHSIZE_AUDIO_LEN)
         wav_half_condition = (first_dim == 1 and first_len > half_batch_size_wav_len)
-        if frame_half_condition or wav_half_condition:
+        if (frame_half_condition or wav_half_condition) and len(batch) > 1:
             batch = batch[:len(batch)//2]
 
     # Read batch
@@ -58,7 +58,7 @@ def collect_text_batch(batch, mode):
     if type(batch[0][0]) is list:
         batch = batch[0]
     # Half batch size if input to long
-    if len(batch[0]) > HALF_BATCHSIZE_TEXT_LEN and mode == 'train':
+    if len(batch[0]) > HALF_BATCHSIZE_TEXT_LEN and mode == 'train' and len(batch) > 1:
         batch = batch[:len(batch)//2]
     # Read batch
     text = [torch.LongTensor(b) for b in batch]
