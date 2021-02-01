@@ -117,6 +117,16 @@ To test a model, run the following command
 ```
 python3 main.py --config <path of config file> --test --njobs <int>
 ```
+If the checkpoint is trained by distributed data parallel (DDP), since we do not wrap the model with DDP during testing, you need to explicitly specify `--load_ddp_to_nonddp`
+```
+python3 main.py --config <path of config file> --test --njobs <int> --load_ddp_to_nonddp
+```
+So if you are evaluating a finetuned checkpoint from a pretrained upstream model
+```
+config_file=config/libri/ctc_decode_finetune_example.yaml
+python3 main.py --config $config_file --test --njobs <int> --load_ddp_to_nonddp
+```
+
 ***Please notice that the decoding is performed without batch processing, use more workers to speedup at the cost of using more RAM.***
 By default, recognition result will be stored at `result/<name>/` as two csv files with auto-naming according to the decoding config file. `output.csv` will store the best hypothesis provided by ASR and `beam.csv` will recored the top hypotheses during beam search. The result file may be evaluated with `eval.py`. For example, test the example ASR trained on LibriSpeech and check performance with
 ```

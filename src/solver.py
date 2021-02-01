@@ -5,6 +5,8 @@ import math
 import yaml
 import torch
 from torch.utils.tensorboard import SummaryWriter
+from torch.nn.utils.rnn import pad_sequence
+from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import is_initialized, get_rank, get_world_size
 
 from src.option import default_hparas
@@ -77,6 +79,54 @@ class BaseSolver():
             self.verbose('Evaluating result of tr. config @ {}'.format(
                 config['src']['config']))
 
+    def set_upstream(self):
+        '''Setup pretrained Upstream model'''
+        if is_initialized() and get_rank() > 0:
+            # While rank 0 is downloading, all other processes wait and set
+            # their upstream_refresh to False to prevent double downloading
+            self.paras.upstream_refresh = False
+            torch.distributed.barrier()
+
+        self.upstream = torch.hub.load(
+            's3prl/s3prl',
+            self.paras.upstream,
+            feature_selection = self.paras.upstream_feature_selection,
+            refresh = self.paras.upstream_refresh,
+            ckpt = self.paras.upstream_ckpt,
+            force_reload = self.paras.upstream_refresh,
+        ).to(device=self.device)
+
+        if is_initialized() and get_rank() == 0:
+            # After rank 0 downloaded the latest checkpoints, notify
+            # others to use this newly downloaded checkpoints
+            torch.distributed.barrier()
+
+        if is_initialized():
+            self.upstream = DDP(self.upstream, device_ids=[self.paras.local_rank], find_unused_parameters=True)
+            setattr(self.upstream, 'get_output_dim', self.upstream.module.get_output_dim)
+
+        if self.paras.upstream_trainable:
+            self.upstream.train()
+        else:
+            self.upstream.eval()
+
+        self.feat_dim = self.upstream.get_output_dim()
+
+    def upstream_extractor(self, wav, wav_len):
+        def extract(wav, wav_len):
+            feat = self.upstream([w[:l].view(-1).to(self.device) for w, l in zip(wav, wav_len)])
+            feat_len = torch.LongTensor([len(f) for f in feat])
+            feat = pad_sequence(feat, batch_first=True)
+            return feat, feat_len
+
+        if self.upstream.training:
+            feat, feat_len = extract(wav, wav_len)
+        else:
+            with torch.no_grad():
+                feat, feat_len = extract(wav, wav_len)
+
+        return feat, feat_len
+
     def backward(self, loss):
         '''
         Standard backward step with self.timer and debugger
@@ -96,15 +146,27 @@ class BaseSolver():
 
     def load_ckpt(self):
         ''' Load ckpt if --load option is specified '''
+
+        def modify_state_fn(state_dict):
+            for key in list(state_dict.keys()):
+                value = state_dict[key]
+                if self.paras.load_ddp_to_nonddp:
+                    new_key = '.'.join(key.split('.')[1:])
+                if self.paras.load_nonddp_to_ddp:
+                    new_key = f'module.{key}'
+                state_dict.pop(key)
+                state_dict[new_key] = value
+            return state_dict
+
         if self.paras.load:
             # Load weights
             ckpt = torch.load(
                 self.paras.load, map_location=self.device if self.mode == 'train' else 'cpu')
-            self.model.load_state_dict(ckpt['model'])
+            self.model.load_state_dict(modify_state_fn(ckpt['model']))
             if self.emb_decoder is not None:
-                self.emb_decoder.load_state_dict(ckpt['emb_decoder'])
+                self.emb_decoder.load_state_dict(modify_state_fn(ckpt['emb_decoder']))
             if hasattr(self, 'upstream'):
-                self.upstream.load_state_dict(ckpt['upstream'])
+                self.upstream.load_state_dict(modify_state_fn(ckpt['upstream']))
 
             # Load task-dependent items
             metric = "None"

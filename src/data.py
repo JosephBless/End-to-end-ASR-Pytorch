@@ -13,13 +13,9 @@ HALF_BATCHSIZE_AUDIO_LEN = 800
 HALF_BATCHSIZE_TEXT_LEN = 150
 
 
-def collect_audio_batch(batch, audio_transform, mode, half_batch_size_wav_len=12800000):
+def collect_audio_batch(batch, audio_transform, mode, half_batch_size_wav_len=300000):
     '''Collects a batch, should be list of tuples (audio_path <str>, list of int token <list>) 
        e.g. [(file1,txt1),(file2,txt2),...]
-       half_batch_size_wav_len 12800000 is about 800 secs and 79800 frames when shift length 10ms
-       This defeault setting is used to NOT halving batch size since we want a fixed batch size
-       for a comparative study. The original repo halves the batch size just to make the training
-       fitted into a single GPU.
     '''
 
     # Bucketed batch should be [[(file1,txt1),(file2,txt2),...]]
@@ -71,9 +67,12 @@ def collect_text_batch(batch, mode):
     return text
 
 
-def create_dataset(tokenizer, ascending, name, path, bucketing, batch_size,
+def create_dataset(tokenizer, ascending, name, path, bucketing, batch_size, eval_batch_size=None,
                    train_split=None, dev_split=None, test_split=None, text_mode='character'):
     ''' Interface for creating all kinds of dataset'''
+
+    if eval_batch_size is None:
+        eval_batch_size = batch_size
 
     # Recognize corpus
     if name.lower() == "librispeech":
@@ -111,7 +110,7 @@ def create_dataset(tokenizer, ascending, name, path, bucketing, batch_size,
                              test_split.__str__(), len(tt_set), batch_size, False)
         msg_list = [m.replace('Dev', 'Test').replace(
             'Train', 'Dev') for m in msg_list]
-        return dv_set, tt_set, batch_size, batch_size, mode, msg_list
+        return dv_set, tt_set, batch_size, eval_batch_size, mode, msg_list
 
 
 def create_textset(tokenizer, train_split, dev_split, name, path, bucketing, batch_size, text_mode='character'):

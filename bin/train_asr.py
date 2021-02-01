@@ -21,6 +21,20 @@ class Solver(BaseSolver):
         # Curriculum learning affects data loader
         self.curriculum = self.config['hparas']['curriculum']
 
+        if is_initialized():
+            # Since DDP uses Allreduce to average the graident between process,
+            # to keep the same behavior across different GPU num, batch_size and
+            # lr per process has to be adjusted accordingly.
+            self._adjust_bs_and_lr()
+    
+    def _adjust_bs_and_lr(self):
+        effective_batch_size = self.config['data']['corpus']['batch_size']
+        effective_lr = self.config['hparas']['lr']
+        gradient_accumulate = self.config['hparas'].get('gradient_accumulate', 1)
+        assert effective_batch_size % (get_world_size() * gradient_accumulate) == 0
+        self.config['data']['corpus']['batch_size'] = effective_batch_size // get_world_size() // gradient_accumulate
+        self.config['hparas']['lr'] = effective_lr * get_world_size()
+
     def fetch_data(self, data):
         ''' Move data to device and compute text seq. length'''
         _, feat, feat_len, txt = data
@@ -43,54 +57,6 @@ class Solver(BaseSolver):
                          wav_only=self.paras.upstream is not None,
                          dryrun=self.paras.dryrun)
         self.verbose(msg)
-
-    def set_upstream(self):
-        '''Setup pretrained Upstream model'''
-        if is_initialized() and get_rank() > 0:
-            # While rank 0 is downloading, all other processes wait and set
-            # their upstream_refresh to False to prevent double downloading
-            self.paras.upstream_refresh = False
-            torch.distributed.barrier()
-
-        self.upstream = torch.hub.load(
-            's3prl/s3prl',
-            self.paras.upstream,
-            feature_selection = self.paras.upstream_feature_selection,
-            refresh = self.paras.upstream_refresh,
-            ckpt = self.paras.upstream_ckpt,
-            force_reload = self.paras.upstream_refresh,
-        ).to(device=self.device)
-
-        if is_initialized() and get_rank() == 0:
-            # After rank 0 downloaded the latest checkpoints, notify
-            # others to use this newly downloaded checkpoints
-            torch.distributed.barrier()
-
-        if is_initialized():
-            self.upstream = DDP(self.upstream, device_ids=[self.paras.local_rank], find_unused_parameters=True)
-            setattr(self.upstream, 'get_output_dim', self.upstream.module.get_output_dim)
-
-        if self.paras.upstream_trainable:
-            self.upstream.train()
-        else:
-            self.upstream.eval()
-
-        self.feat_dim = self.upstream.get_output_dim()
-
-    def upstream_extractor(self, wav, wav_len):
-        def extract(wav, wav_len):
-            feat = self.upstream([w[:l].view(-1).to(self.device) for w, l in zip(wav, wav_len)])
-            feat_len = torch.LongTensor([len(f) for f in feat])
-            feat = pad_sequence(feat, batch_first=True)
-            return feat, feat_len
-
-        if self.upstream.training:
-            feat, feat_len = extract(wav, wav_len)
-        else:
-            with torch.no_grad():
-                feat, feat_len = extract(wav, wav_len)
-
-        return feat, feat_len
 
     def set_model(self):
         model_paras = []
@@ -158,6 +124,9 @@ class Solver(BaseSolver):
         ctc_loss, att_loss, emb_loss = None, None, None
         self.timer.set()
 
+        accumulate_step = 1
+        gradient_accumulate = self.config['hparas'].get('gradient_accumulate', 1)
+
         while self.step < self.max_step:
             # Renew dataloader to enable random sampling
             if self.curriculum > 0 and self.n_epochs == self.curriculum:
@@ -216,8 +185,12 @@ class Solver(BaseSolver):
 
                 # Backprop
                 self.timer.set()
-                self.scaler.scale(total_loss).backward()
-                
+                self.scaler.scale(total_loss / gradient_accumulate).backward()
+
+                accumulate_step += 1
+                if accumulate_step % gradient_accumulate > 0:
+                    continue
+
                 self.scaler.unscale_(self.optimizer)
                 grad_norm = torch.nn.utils.clip_grad_norm_(self.params_list, self.GRAD_CLIP)
                 self.scaler.step(self.optimizer)
@@ -260,6 +233,8 @@ class Solver(BaseSolver):
     def validate(self):
         if is_initialized() and get_rank() > 0:
             return
+
+        torch.cuda.empty_cache()
 
         # Eval mode
         self.model.eval()
