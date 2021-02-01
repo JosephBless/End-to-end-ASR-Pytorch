@@ -57,6 +57,10 @@ parser.add_argument('--local_rank', type=int,
                     help=f'The GPU id this process should use while distributed training. \
                            None when not launched by torch.distributed.launch')
 parser.add_argument('--backend', default='nccl', help='The backend for distributed training')
+parser.add_argument('--load_ddp_to_nonddp', action='store_true',
+                    help='The checkpoint is trained with ddp but loaded to a non-ddp model')
+parser.add_argument('--load_nonddp_to_ddp', action='store_true',
+                    help='The checkpoint is trained without ddp but loaded to a ddp model')
 parser.add_argument('--dryrun', action='store_true',
                     help='Iterate the dataset decendingly by sequence length to make sure the training will not OOM')
 
@@ -75,15 +79,6 @@ if paras.cache_dir is not None:
 if paras.local_rank is not None:
     torch.cuda.set_device(paras.local_rank)
     torch.distributed.init_process_group(paras.backend)
-    # Since DDP uses Allreduce to average the graident between process,
-    # to keep the same behavior across different GPU num, batch_size and
-    # lr per process has to be adjusted accordingly.
-    effective_batch_size = config['data']['corpus']['batch_size']
-    effective_lr = config['hparas']['lr']
-    gradient_accumulate = config['hparas'].get('gradient_accumulate', 1)
-    assert effective_batch_size % (get_world_size() * gradient_accumulate) == 0
-    config['data']['corpus']['batch_size'] = effective_batch_size // get_world_size() // gradient_accumulate
-    config['hparas']['lr'] = effective_lr * get_world_size()
 
 np.random.seed(paras.seed)
 torch.manual_seed(paras.seed)

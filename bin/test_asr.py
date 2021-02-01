@@ -4,6 +4,8 @@ from tqdm import tqdm
 from functools import partial
 from joblib import Parallel, delayed
 from torch.nn.utils.rnn import pad_sequence
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.distributed import is_initialized, get_rank, get_world_size
 
 from src.solver import BaseSolver
 from src.asr import ASR
@@ -59,11 +61,13 @@ class Solver(BaseSolver):
             load_dataset(self.paras.njobs, self.paras.gpu,
                          self.paras.pin_memory, False, **self.config['data'],
                          wav_only=self.paras.upstream is not None)
-        if self.paras.upstream is not None:
-            self.set_upstream()
         self.verbose(msg)
 
     def set_model(self):
+        ''' Setup pretrained upstream'''
+        if self.paras.upstream is not None:
+            self.set_upstream()
+
         ''' Setup ASR model '''
         # Model
         init_adadelta = self.config['hparas']['optimizer'] == 'Adadelta'
@@ -105,33 +109,6 @@ class Solver(BaseSolver):
         self.verbose(self.decoder.create_msg())
         del self.model
         del self.emb_decoder
-
-    def set_upstream(self):
-        '''Setup pretrained Upstream model'''
-        self.upstream = torch.hub.load(
-            's3prl/s3prl',
-            self.paras.upstream,
-            feature_selection = self.paras.upstream_feature_selection,
-            refresh = self.paras.upstream_refresh,
-            ckpt = self.paras.upstream_ckpt,
-            force_reload = self.paras.upstream_refresh,
-        ).to(device=self.device)
-        self.upstream.eval()
-        self.feat_dim = self.upstream.get_output_dim()
-
-    def upstream_extractor(self, wav, wav_len):
-        def extract(wav, wav_len):
-            feat = self.upstream([w[:l].view(-1).to(self.device) for w, l in zip(wav, wav_len)])
-            feat_len = torch.LongTensor([len(f) for f in feat])
-            feat = pad_sequence(feat, batch_first=True)
-            return feat, feat_len
-
-        with torch.no_grad():
-            # feature extraction should always be in eval mode
-            self.upstream.eval()
-            feat, feat_len = extract(wav, wav_len)
-
-        return feat, feat_len
 
     def greedy_decode(self, dv_set):
         ''' Greedy Decoding '''
