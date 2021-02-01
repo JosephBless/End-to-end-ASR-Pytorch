@@ -12,6 +12,8 @@ from torch.distributed import is_initialized, get_rank, get_world_size
 from src.option import default_hparas
 from src.util import human_format, Timer
 
+DOWNSAMPLE_RATE_FROM_WAV = 320
+
 
 class BaseSolver():
     ''' 
@@ -114,7 +116,8 @@ class BaseSolver():
 
     def upstream_extractor(self, wav, wav_len):
         def extract(wav, wav_len):
-            feat = self.upstream([w[:l].view(-1).to(self.device) for w, l in zip(wav, wav_len)])
+            ds = DOWNSAMPLE_RATE_FROM_WAV // self.upstream.get_downsample_rate() if self.paras.upstream_same_stride else 1
+            feat = self.upstream([w[:l].view(-1)[::ds].to(self.device) for w, l in zip(wav, wav_len)])
             feat_len = torch.LongTensor([len(f) for f in feat])
             feat = pad_sequence(feat, batch_first=True)
             return feat, feat_len

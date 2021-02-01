@@ -22,18 +22,18 @@ class Solver(BaseSolver):
         self.curriculum = self.config['hparas']['curriculum']
 
         if is_initialized():
-            # Since DDP uses Allreduce to average the graident between process,
-            # to keep the same behavior across different GPU num, batch_size and
-            # lr per process has to be adjusted accordingly.
             self._adjust_bs_and_lr()
     
     def _adjust_bs_and_lr(self):
+        # Since DDP uses Allreduce to average the graident between processes,
+        # to keep the same behavior across different GPU num, batch_size and
+        # lr per process has to be adjusted accordingly.
         effective_batch_size = self.config['data']['corpus']['batch_size']
-        effective_lr = self.config['hparas']['lr']
+        lr_per_process = self.config['hparas']['lr']
         gradient_accumulate = self.config['hparas'].get('gradient_accumulate', 1)
         assert effective_batch_size % (get_world_size() * gradient_accumulate) == 0
         self.config['data']['corpus']['batch_size'] = effective_batch_size // get_world_size() // gradient_accumulate
-        self.config['hparas']['lr'] = effective_lr * get_world_size()
+        self.config['hparas']['lr'] = lr_per_process * get_world_size()
 
     def fetch_data(self, data):
         ''' Move data to device and compute text seq. length'''
