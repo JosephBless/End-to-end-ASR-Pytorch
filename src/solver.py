@@ -3,6 +3,8 @@ import sys
 import abc
 import math
 import yaml
+from shutil import copyfile
+
 import torch
 from torch.utils.tensorboard import SummaryWriter
 from torch.nn.utils.rnn import pad_sequence
@@ -55,6 +57,7 @@ class BaseSolver():
                 self.logdir = os.path.join(paras.logdir, self.exp_name)
                 self.log = SummaryWriter(
                     self.logdir, flush_secs=self.TB_FLUSH_FREQ)
+                copyfile(self.paras.config, f'{self.logdir}/config.yaml')
 
             self.timer = Timer()
 
