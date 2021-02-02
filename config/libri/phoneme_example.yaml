@@ -5,7 +5,7 @@ data:
     train_split: ['train-clean-100'] # Name of data splits to be used as training set
     dev_split: ['dev-clean']              # Name of data splits to be used as validation set
     bucketing: True                       # Enable/Disable bucketing 
-    batch_size: 4
+    batch_size: 32
   audio:                                  # Attributes of audio feature
     feat_type: 'fbank'
     feat_dim:  40
@@ -26,10 +26,11 @@ hparas:                                   # Experiment hyper-parameters
   tf_end: 1.0
   tf_step: 500000
   optimizer: 'Adam'
-  lr: 1.0e-4
+  lr: 1.0e-2
   eps: 0.00000001                         # 1e-8
   lr_scheduler: 'fixed'                   # 'fixed'/'warmup'
   curriculum: 0
+  gradient_accumulate: 1
 
 model:                                    # Model architecture
   ctc_weight: 1.0                         # Weight for CTC loss
