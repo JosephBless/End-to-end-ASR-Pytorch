@@ -106,6 +106,7 @@ class BaseSolver():
         if is_initialized():
             self.upstream = DDP(self.upstream, device_ids=[self.paras.local_rank], find_unused_parameters=True)
             setattr(self.upstream, 'get_output_dim', self.upstream.module.get_output_dim)
+            setattr(self.upstream, 'get_downsample_rate', self.upstream.module.get_downsample_rate)
 
         if self.paras.upstream_trainable:
             self.upstream.train()
