@@ -1,12 +1,12 @@
 data:
   corpus:                                 
     name: 'Librispeech'                   # Specify corpus
-    path: 'data/LibriSpeech'          # Path to raw LibriSpeech dataset
+    path: '/path/to/LibriSpeech'          # Path to raw LibriSpeech dataset
     train_split: ['train-clean-100'] # Name of data splits to be used as training set
     dev_split: ['dev-clean']              # Name of data splits to be used as validation set
     bucketing: True                       # Enable/Disable bucketing 
-    batch_size: 32
-    eval_batch_size: 32
+    batch_size: 16
+    eval_batch_size: 16
   audio:                                  # Attributes of audio feature
     feat_type: 'fbank'
     feat_dim:  40
