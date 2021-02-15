@@ -21,6 +21,12 @@ class Solver(BaseSolver):
         # Curriculum learning affects data loader
         self.curriculum = self.config['hparas']['curriculum']
 
+        # set specaug
+        self.specaug = None
+        if self.config.get('specaug'):
+            from src.specaug import SpecAug
+            self.specaug = SpecAug(**self.config["specaug"])
+
         if is_initialized():
             self._adjust_bs_and_lr()
     
@@ -148,6 +154,9 @@ class Solver(BaseSolver):
                     # Fetch data
                     feat, feat_len, txt, txt_len = self.fetch_data(data)
                     self.timer.cnt('rd')
+
+                    if self.specaug:
+                        feat, _ = self.specaug(feat, feat_len)
 
                     # Forward model
                     # Note: txt should NOT start w/ <sos>

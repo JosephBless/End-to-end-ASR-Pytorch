@@ -33,6 +33,13 @@ hparas:                                   # Experiment hyper-parameters
   curriculum: 0
   gradient_accumulate: 2
 
+# comment the whole specaug config block
+# to disable specaug on representation
+specaug:
+  apply_time_warp: true
+  apply_time_mask: true
+  apply_freq_mask: true
+
 model:                                    # Model architecture
   ctc_weight: 1.0                         # Weight for CTC loss
   encoder:
