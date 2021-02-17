@@ -102,6 +102,7 @@ class CharacterTextSlotEncoder(_BaseTextEncoder):
         self.slot2id = {self.slots[i]:(i+len(self._vocab_list)) for i in range(len(self.slots))}
         self.id2slot = {(i+len(self._vocab_list)):self.slots[i] for i in range(len(self.slots))}
 
+
     def encode(self, s):
         # Always strip trailing space, \r and \n
         sent, iobs = s.strip('\r\n ').split('\t')
@@ -139,9 +140,9 @@ class CharacterTextSlotEncoder(_BaseTextEncoder):
             # Do not strip space because character based text encoder should
             # have a space token
             vocab_list = [line.strip("\r\n") for line in f]
-        slots = open(slots_file).read().split('\n')
+        org_slots = open(slots_file).read().split('\n')
         slots = []
-        for slot in slots[1:]:
+        for slot in org_slots[1:]:
             slots.append('B-'+slot)
             slots.append('E-'+slot)
         return cls(vocab_list, slots)
@@ -258,9 +259,9 @@ class SubwordTextSlotEncoder(_BaseTextEncoder):
         spm = splib.SentencePieceProcessor()
         spm.load(filepath)
         spm.set_encode_extra_options(":eos")
-        slots = open(slots_file).read().split('\n')
+        org_slots = open(slots_file).read().split('\n')
         slots = []
-        for slot in slots[1:]:
+        for slot in org_slots[1:]:
             slots.append('B-'+slot)
             slots.append('E-'+slot)
         return cls(spm, slots)
@@ -364,7 +365,7 @@ class BertTextEncoder(_BaseTextEncoder):
         return 2
 
 
-def load_text_encoder(mode, vocab_file, slots_file=None):
+def load_text_encoder(mode, vocab_file, slots_file):
     if mode == "character":
         return CharacterTextEncoder.load_from_file(vocab_file)
     elif mode == "character-slot":

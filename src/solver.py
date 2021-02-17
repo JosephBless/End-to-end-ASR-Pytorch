@@ -198,9 +198,9 @@ class BaseSolver():
         if self.paras.verbose:
             if type(msg) == list:
                 for m in msg:
-                    print('[INFO]', m.ljust(100))
+                    print('[INFO]', m.ljust(100), flush=True)
             else:
-                print('[INFO]', msg.ljust(100))
+                print('[INFO]', msg.ljust(100), flush=True)
 
     def progress(self, msg):
         ''' Verbose function for updating progress on stdout (do not include newline) '''
@@ -208,7 +208,7 @@ class BaseSolver():
 
         if self.paras.verbose:
             sys.stdout.write("\033[K")  # Clear line
-            print('[{}] {}'.format(human_format(self.step), msg), end='\r')
+            print('[{}] {}'.format(human_format(self.step), msg), end='\r', flush=True)
 
     def write_log(self, log_name, log_dict):
         '''

@@ -1,4 +1,4 @@
-from tqdm import tqdm
+from tqdm import tqdm, trange
 from pathlib import Path
 from os.path import join, getsize
 from joblib import Parallel, delayed
@@ -39,7 +39,7 @@ class SnipsDataset(Dataset):
         self.bucket_size = bucket_size
 
         # Load transcription
-        transcripts_file = open(os.path.join(self.path, 'all-trans.txt')).readlines()
+        transcripts_file = open(join(self.path, 'all.iob.snips.txt')).readlines()
         transcripts = {}
         for line in transcripts_file:
             line = line.strip().split(' ')
@@ -53,8 +53,8 @@ class SnipsDataset(Dataset):
             split_list = list(Path(join(path, s)).rglob("*.wav"))
             new_list = []
             uf = 0
-            for i in range(len(split_list)):
-                if str(split_list[i]).split('/')[-1].split('.wav', 1)[0] in transcripts:
+            for i in trange(len(split_list), desc='checking files'):
+                if str(split_list[i]).split('/')[-1].split('.wav', 1)[0].split('/')[-1] in transcripts:
                     new_list.append(split_list[i])
                 else:
                     print(split_list[i], "Not Found")
@@ -67,8 +67,8 @@ class SnipsDataset(Dataset):
         #text = Parallel(n_jobs=READ_FILE_THREADS)(
         #    delayed(read_text)(str(f)) for f in file_list)
         #text = Parallel(n_jobs=-1)(delayed(tokenizer.encode)(txt) for txt in text)
-        text = [transcripts[f.split('.wav', 1)[0]] for f in file_list]
-        text = [tokenizer.encode(txt) for txt in text]
+        text = [transcripts[str(f).split('.wav', 1)[0].split('/')[-1]] for f in file_list]
+        text = [tokenizer.encode(txt) for txt in tqdm(text, desc='tokenizing')]
 
         # Sort dataset by text length
         #file_len = Parallel(n_jobs=READ_FILE_THREADS)(delayed(getsize)(f) for f in file_list)
@@ -97,7 +97,7 @@ class SnipsTextDataset(Dataset):
         read_txt_src = []
 
         # Load transcription
-        transcripts_file = open(os.path.join(self.path, 'all-trans.txt')).readlines()
+        transcripts_file = open(join(self.path, 'all.iob.snips.txt')).readlines()
         transcripts = {}
         for line in transcripts_file:
             line = line.strip().split(' ')
@@ -120,7 +120,7 @@ class SnipsTextDataset(Dataset):
         # Read text
         #text = Parallel(n_jobs=READ_FILE_THREADS)(
         #    delayed(read_text)(str(f)) for f in file_list)
-        text = [transcripts[f.split('.wav', 1)[0]] for f in file_list]
+        text = [transcripts[str(f).split('.wav', 1)[0].split('/')[-1]] for f in file_list]
         all_sent.extend(text)
         del text
 
