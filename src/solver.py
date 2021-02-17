@@ -5,9 +5,14 @@ import math
 import yaml
 import torch
 from torch.utils.tensorboard import SummaryWriter
+from torch.nn.utils.rnn import pad_sequence
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.distributed import is_initialized, get_rank, get_world_size
 
 from src.option import default_hparas
 from src.util import human_format, Timer
+
+DOWNSAMPLE_RATE_FROM_WAV = 320
 
 
 class BaseSolver():
@@ -27,7 +32,6 @@ class BaseSolver():
             setattr(self, k, v)
         self.device = torch.device(
             'cuda') if self.paras.gpu and torch.cuda.is_available() else torch.device('cpu')
-        self.amp = paras.amp
 
         # Name experiment
         self.exp_name = paras.name
@@ -41,19 +45,22 @@ class BaseSolver():
         self.emb_decoder = None
 
         if mode == 'train':
-            # Filepath setup
-            os.makedirs(paras.ckpdir, exist_ok=True)
-            self.ckpdir = os.path.join(paras.ckpdir, self.exp_name)
-            os.makedirs(self.ckpdir, exist_ok=True)
+            if not is_initialized() or get_rank() == 0:
+                # Filepath setup
+                os.makedirs(paras.ckpdir, exist_ok=True)
+                self.ckpdir = os.path.join(paras.ckpdir, self.exp_name)
+                os.makedirs(self.ckpdir, exist_ok=True)
 
-            # Logger settings
-            self.logdir = os.path.join(paras.logdir, self.exp_name)
-            self.log = SummaryWriter(
-                self.logdir, flush_secs=self.TB_FLUSH_FREQ)
+                # Logger settings
+                self.logdir = os.path.join(paras.logdir, self.exp_name)
+                self.log = SummaryWriter(
+                    self.logdir, flush_secs=self.TB_FLUSH_FREQ)
+
             self.timer = Timer()
 
             # Hyperparameters
             self.step = 0
+            self.n_epochs = 0
             self.valid_step = config['hparas']['valid_step']
             self.max_step = config['hparas']['max_step']
 
@@ -61,9 +68,10 @@ class BaseSolver():
             self.verbose('Loading data... large corpus may took a while.')
 
         elif mode == 'test':
-            # Output path
-            os.makedirs(paras.outdir, exist_ok=True)
-            self.ckpdir = os.path.join(paras.outdir, self.exp_name)
+            if not is_initialized() or get_rank() == 0:
+                # Output path
+                os.makedirs(paras.outdir, exist_ok=True)
+                self.ckpdir = os.path.join(paras.outdir, self.exp_name)
 
             # Load training config to get acoustic feat, text encoder and build model
             self.src_config = yaml.load(
@@ -72,6 +80,56 @@ class BaseSolver():
 
             self.verbose('Evaluating result of tr. config @ {}'.format(
                 config['src']['config']))
+
+    def set_upstream(self):
+        '''Setup pretrained Upstream model'''
+        if is_initialized() and get_rank() > 0:
+            # While rank 0 is downloading, all other processes wait and set
+            # their upstream_refresh to False to prevent double downloading
+            self.paras.upstream_refresh = False
+            torch.distributed.barrier()
+
+        self.upstream = torch.hub.load(
+            's3prl/s3prl',
+            self.paras.upstream,
+            feature_selection = self.paras.upstream_feature_selection,
+            refresh = self.paras.upstream_refresh,
+            ckpt = self.paras.upstream_ckpt,
+            force_reload = self.paras.upstream_refresh,
+        ).to(device=self.device)
+
+        if is_initialized() and get_rank() == 0:
+            # After rank 0 downloaded the latest checkpoints, notify
+            # others to use this newly downloaded checkpoints
+            torch.distributed.barrier()
+
+        if is_initialized():
+            self.upstream = DDP(self.upstream, device_ids=[self.paras.local_rank], find_unused_parameters=True)
+            setattr(self.upstream, 'get_output_dim', self.upstream.module.get_output_dim)
+            setattr(self.upstream, 'get_downsample_rate', self.upstream.module.get_downsample_rate)
+
+        if self.paras.upstream_trainable:
+            self.upstream.train()
+        else:
+            self.upstream.eval()
+
+        self.feat_dim = self.upstream.get_output_dim()
+
+    def upstream_extractor(self, wav, wav_len):
+        def extract(wav, wav_len):
+            ds = DOWNSAMPLE_RATE_FROM_WAV // self.upstream.get_downsample_rate() if self.paras.upstream_same_stride else 1
+            feat = self.upstream([w[:l].view(-1)[::ds].to(self.device) for w, l in zip(wav, wav_len)])
+            feat_len = torch.LongTensor([len(f) for f in feat])
+            feat = pad_sequence(feat, batch_first=True)
+            return feat, feat_len
+
+        if self.upstream.training:
+            feat, feat_len = extract(wav, wav_len)
+        else:
+            with torch.no_grad():
+                feat, feat_len = extract(wav, wav_len)
+
+        return feat, feat_len
 
     def backward(self, loss):
         '''
@@ -92,17 +150,28 @@ class BaseSolver():
 
     def load_ckpt(self):
         ''' Load ckpt if --load option is specified '''
+
+        def modify_state_fn(state_dict):
+            for key in list(state_dict.keys()):
+                value = state_dict[key]
+                if self.paras.load_ddp_to_nonddp:
+                    new_key = '.'.join(key.split('.')[1:])
+                if self.paras.load_nonddp_to_ddp:
+                    new_key = f'module.{key}'
+                state_dict.pop(key)
+                state_dict[new_key] = value
+            return state_dict
+
         if self.paras.load:
             # Load weights
             ckpt = torch.load(
                 self.paras.load, map_location=self.device if self.mode == 'train' else 'cpu')
-            self.model.load_state_dict(ckpt['model'])
+            self.model.load_state_dict(modify_state_fn(ckpt['model']))
             if self.emb_decoder is not None:
-                self.emb_decoder.load_state_dict(ckpt['emb_decoder'])
+                self.emb_decoder.load_state_dict(modify_state_fn(ckpt['emb_decoder']))
             if hasattr(self, 'upstream'):
-                self.upstream.load_state_dict(ckpt['upstream'])
-            # if self.amp:
-            #    amp.load_state_dict(ckpt['amp'])
+                self.upstream.load_state_dict(modify_state_fn(ckpt['upstream']))
+
             # Load task-dependent items
             metric = "None"
             score = 0.0
@@ -124,6 +193,8 @@ class BaseSolver():
 
     def verbose(self, msg):
         ''' Verbose function for print information to stdout'''
+        if is_initialized() and get_rank() > 0: return
+
         if self.paras.verbose:
             if type(msg) == list:
                 for m in msg:
@@ -133,6 +204,8 @@ class BaseSolver():
 
     def progress(self, msg):
         ''' Verbose function for updating progress on stdout (do not include newline) '''
+        if is_initialized() and get_rank() > 0: return
+
         if self.paras.verbose:
             sys.stdout.write("\033[K")  # Clear line
             print('[{}] {}'.format(human_format(self.step), msg), end='\r')
@@ -143,6 +216,8 @@ class BaseSolver():
             log_name  - <str> Name of tensorboard variable 
             log_value - <dict>/<array> Value of variable (e.g. dict of losses), passed if value = None
         '''
+        if is_initialized() and get_rank() > 0: return
+
         if type(log_dict) is dict:
             log_dict = {key: val for key, val in log_dict.items() if (
                 val is not None and not math.isnan(val))}
@@ -164,6 +239,8 @@ class BaseSolver():
             f_name - <str> the name phnof ckpt file (w/o prefix) to store, overwrite if existed
             score  - <float> The value of metric used to evaluate model
         '''
+        if is_initialized() and get_rank() > 0: return
+
         ckpt_path = os.path.join(self.ckpdir, f_name)
         full_dict = {
             "model": self.model.state_dict(),
@@ -171,28 +248,18 @@ class BaseSolver():
             "global_step": self.step,
             metric: score
         }
-        # Additional modules to save
-        # if self.amp:
-        #    full_dict['amp'] = self.amp_lib.state_dict()
+
         if self.emb_decoder is not None:
             full_dict['emb_decoder'] = self.emb_decoder.state_dict()
-        if hasattr(self, 'upstream'):
+        if self.paras.upstream_trainable:
             full_dict['upstream'] = self.upstream.state_dict()
+        if hasattr(self, 'scaler'):
+            full_dict['scaler'] = self.scaler.state_dict()
 
         torch.save(full_dict, ckpt_path)
         if show_msg:
             self.verbose("Saved checkpoint (step = {}, {} = {:.2f}) and status @ {}".
                          format(human_format(self.step), metric, score, ckpt_path))
-
-    def enable_apex(self):
-        if self.amp:
-            # Enable mixed precision computation (ToDo: Save/Load amp)
-            from apex import amp
-            self.amp_lib = amp
-            self.verbose(
-                "AMP enabled (check https://github.com/NVIDIA/apex for more details).")
-            self.model, self.optimizer.opt = self.amp_lib.initialize(
-                self.model, self.optimizer.opt, opt_level='O1')
 
     # ----------------------------------- Abtract Methods ------------------------------------------ #
     @abc.abstractmethod

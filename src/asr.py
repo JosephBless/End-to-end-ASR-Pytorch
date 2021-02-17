@@ -327,7 +327,6 @@ class Encoder(nn.Module):
         assert len(sample_rate) == len(dropout), 'Number of layer mismatch'
         assert len(dropout) == len(dim), 'Number of layer mismatch'
         num_layers = len(dim)
-        assert num_layers >= 1, 'Encoder should have at least 1 layer'
 
         # Construct model
         module_list = []
@@ -352,8 +351,6 @@ class Encoder(nn.Module):
                                             sample_rate[l], sample_style, proj[l]))
                 input_dim = module_list[-1].out_dim
                 self.sample_rate = self.sample_rate*sample_rate[l]
-        else:
-            raise NotImplementedError
 
         # Build model
         self.in_dim = input_size

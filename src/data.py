@@ -3,7 +3,8 @@ import torchaudio
 from functools import partial
 from src.text import load_text_encoder
 from src.audio import create_transform
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, DistributedSampler
+from torch.distributed import is_initialized, get_world_size, get_rank
 from torch.nn.utils.rnn import pad_sequence
 
 # Batch size will be halfed if the longest wavefile surpasses threshold
@@ -12,10 +13,9 @@ HALF_BATCHSIZE_AUDIO_LEN = 800
 HALF_BATCHSIZE_TEXT_LEN = 150
 
 
-def collect_audio_batch(batch, audio_transform, mode, half_batch_size_wav_len=128000):
+def collect_audio_batch(batch, audio_transform, mode, half_batch_size_wav_len=300000):
     '''Collects a batch, should be list of tuples (audio_path <str>, list of int token <list>) 
        e.g. [(file1,txt1),(file2,txt2),...]
-       half_batch_size_wav_len 128000 is about 8 secs and 798 frames in kaldi's standard recipe
     '''
 
     # Bucketed batch should be [[(file1,txt1),(file2,txt2),...]]
@@ -26,7 +26,7 @@ def collect_audio_batch(batch, audio_transform, mode, half_batch_size_wav_len=12
     if mode == 'train':
         frame_half_condition = (first_dim > 1 and first_len > HALF_BATCHSIZE_AUDIO_LEN)
         wav_half_condition = (first_dim == 1 and first_len > half_batch_size_wav_len)
-        if frame_half_condition or wav_half_condition:
+        if (frame_half_condition or wav_half_condition) and len(batch) > 1:
             batch = batch[:len(batch)//2]
 
     # Read batch
@@ -57,7 +57,7 @@ def collect_text_batch(batch, mode):
     if type(batch[0][0]) is list:
         batch = batch[0]
     # Half batch size if input to long
-    if len(batch[0]) > HALF_BATCHSIZE_TEXT_LEN and mode == 'train':
+    if len(batch[0]) > HALF_BATCHSIZE_TEXT_LEN and mode == 'train' and len(batch) > 1:
         batch = batch[:len(batch)//2]
     # Read batch
     text = [torch.LongTensor(b) for b in batch]
@@ -67,9 +67,12 @@ def collect_text_batch(batch, mode):
     return text
 
 
-def create_dataset(tokenizer, ascending, name, path, bucketing, batch_size,
+def create_dataset(tokenizer, ascending, name, path, bucketing, batch_size, eval_batch_size=None,
                    train_split=None, dev_split=None, test_split=None):
     ''' Interface for creating all kinds of dataset'''
+
+    if eval_batch_size is None:
+        eval_batch_size = batch_size
 
     # Recognize corpus
     if name.lower() == "librispeech":
@@ -107,7 +110,7 @@ def create_dataset(tokenizer, ascending, name, path, bucketing, batch_size,
                              test_split.__str__(), len(tt_set), batch_size, False)
         msg_list = [m.replace('Dev', 'Test').replace(
             'Train', 'Dev') for m in msg_list]
-        return dv_set, tt_set, batch_size, batch_size, mode, msg_list
+        return dv_set, tt_set, batch_size, eval_batch_size, mode, msg_list
 
 
 def create_textset(tokenizer, train_split, dev_split, name, path, bucketing, batch_size):
@@ -136,7 +139,7 @@ def create_textset(tokenizer, train_split, dev_split, name, path, bucketing, bat
     return tr_set, dv_set, tr_loader_bs, batch_size, msg_list
 
 
-def load_dataset(n_jobs, use_gpu, pin_memory, ascending, corpus, audio, text, wav_only=False):
+def load_dataset(n_jobs, use_gpu, pin_memory, ascending, corpus, audio, text, wav_only=False, dryrun=False):
     ''' Prepare dataloader for training/validation'''
 
     # Audio feature extractor
@@ -161,11 +164,17 @@ def load_dataset(n_jobs, use_gpu, pin_memory, ascending, corpus, audio, text, wa
     collect_dv = partial(collect_audio_batch,
                          audio_transform=audio_transform, mode='test')
     # Shuffle/drop applied to training set only
-    shuffle = (mode == 'train' and not ascending)
+    shuffle = (mode == 'train' and not ascending) and not dryrun
     drop_last = shuffle
+
+    if is_initialized():
+        tr_sampler = DistributedSampler(tr_set, num_replicas=get_world_size(),
+            rank=get_rank(), shuffle=shuffle, drop_last=drop_last)
+        shuffle = False
+
     # Create data loader
     tr_set = DataLoader(tr_set, batch_size=tr_loader_bs, shuffle=shuffle, drop_last=drop_last, collate_fn=collect_tr,
-                        num_workers=n_jobs, pin_memory=use_gpu)
+                        num_workers=n_jobs, pin_memory=use_gpu, sampler=tr_sampler if is_initialized() else None)
     dv_set = DataLoader(dv_set, batch_size=dv_loader_bs, shuffle=False, drop_last=False, collate_fn=collect_dv,
                         num_workers=n_jobs, pin_memory=pin_memory)
     # Messages to show
