@@ -39,7 +39,7 @@ class SnipsDataset(Dataset):
         self.bucket_size = bucket_size
 
         # Load transcription
-        transcripts_file = open(join(self.path, 'all.iob.snips.txt')).readlines()
+        transcripts_file = open(join(self.path, 'all.iob.snips.txt' if '-slot' in tokenizer.token_type else 'all-trans.txt')).readlines()
         transcripts = {}
         for line in transcripts_file:
             line = line.strip().split(' ')
@@ -97,7 +97,7 @@ class SnipsTextDataset(Dataset):
         read_txt_src = []
 
         # Load transcription
-        transcripts_file = open(join(self.path, 'all.iob.snips.txt')).readlines()
+        transcripts_file = open(join(self.path, 'all.iob.snips.txt' if '-slot' in tokenizer.token_type else 'all-trans.txt')).readlines()
         transcripts = {}
         for line in transcripts_file:
             line = line.strip().split(' ')
