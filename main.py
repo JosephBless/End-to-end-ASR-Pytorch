@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 # coding: utf-8
+import os
 import yaml
 import torch
 import argparse
 import numpy as np
+from torch.distributed import get_rank, get_world_size
 
 # For reproducibility, comment these may speed up training
 torch.backends.cudnn.deterministic = True
@@ -50,12 +52,35 @@ parser.add_argument('--upstream_ckpt', metavar='{PATH,URL,GOOGLE_DRIVE_ID}',
                     help='Only set when the specified upstream has \'ckpt\' as an argument in torch.hub.help')
 parser.add_argument('--upstream_trainable', '-f', action='store_true',
                     help='To fine-tune the whole upstream model')
+parser.add_argument('--upstream_same_stride', action='store_true',
+                    help='Make sure all upstream features are projected to the same stride in waveform seconds.')
+parser.add_argument('--cache_dir', help='Explicitly set the dir for torch.hub')
+parser.add_argument('--local_rank', type=int,
+                    help=f'The GPU id this process should use while distributed training. \
+                           None when not launched by torch.distributed.launch')
+parser.add_argument('--backend', default='nccl', help='The backend for distributed training')
+parser.add_argument('--load_ddp_to_nonddp', action='store_true',
+                    help='The checkpoint is trained with ddp but loaded to a non-ddp model')
+parser.add_argument('--load_nonddp_to_ddp', action='store_true',
+                    help='The checkpoint is trained without ddp but loaded to a ddp model')
+parser.add_argument('--dryrun', action='store_true',
+                    help='Iterate the dataset decendingly by sequence length to make sure the training will not OOM')
+
 ###
 paras = parser.parse_args()
 setattr(paras, 'gpu', not paras.cpu)
 setattr(paras, 'pin_memory', not paras.no_pin)
 setattr(paras, 'verbose', not paras.no_msg)
 config = yaml.load(open(paras.config, 'r'), Loader=yaml.FullLoader)
+
+if paras.cache_dir is not None:
+    os.makedirs(paras.cache_dir, exist_ok=True)
+    torch.hub.set_dir(paras.cache_dir)
+
+# When torch.distributed.launch is used
+if paras.local_rank is not None:
+    torch.cuda.set_device(paras.local_rank)
+    torch.distributed.init_process_group(paras.backend)
 
 np.random.seed(paras.seed)
 torch.manual_seed(paras.seed)
