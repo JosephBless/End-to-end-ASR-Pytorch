@@ -65,6 +65,8 @@ parser.add_argument('--load_nonddp_to_ddp', action='store_true',
                     help='The checkpoint is trained without ddp but loaded to a ddp model')
 parser.add_argument('--dryrun', action='store_true',
                     help='Iterate the dataset decendingly by sequence length to make sure the training will not OOM')
+parser.add_argument('--reinit_optimizer', action='store_true',
+                    help='Load model without loading optimizer')
 
 ###
 paras = parser.parse_args()
