@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from torch.distributions.categorical import Categorical
 
 from src.util import init_weights, init_gate
-from src.module import VGGExtractor, CNNExtractor, RNNLayer, ScaleDotAttention, LocationAwareAttention
+from src.module import VGGExtractor, CNNExtractor, Wav2Letter, RNNLayer, ScaleDotAttention, LocationAwareAttention
 
 
 class ASR(nn.Module):
@@ -323,6 +323,7 @@ class Encoder(nn.Module):
         # Hyper-parameters checking
         self.vgg = prenet == 'vgg'
         self.cnn = prenet == 'cnn'
+        self.wav2letter = prenet == 'wav2letter'
         self.sample_rate = 1
         assert len(sample_rate) == len(dropout), 'Number of layer mismatch'
         assert len(dropout) == len(dim), 'Number of layer mismatch'
@@ -343,6 +344,11 @@ class Encoder(nn.Module):
             module_list.append(cnn_extractor)
             input_dim = cnn_extractor.out_dim
             self.sample_rate = self.sample_rate*4
+        if self.wav2letter:
+            wav2letter = Wav2Letter(input_size)
+            module_list.append(wav2letter)
+            input_dim = wav2letter.out_dim
+            self.sample_rate = self.sample_rate * wav2letter.downsample_rate
 
         # Recurrent encoder
         if module in ['LSTM', 'GRU']:
