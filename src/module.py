@@ -10,7 +10,7 @@ class Wav2Letter(nn.Module):
     total downsample rate given the different upstream downsample rate.
     """
 
-    def __init__(self, input_dim, output_dim=128, upstream_rate=160, total_rate=-1, **kwargs):
+    def __init__(self, input_dim, output_dim=128, upstream_rate=160, total_rate=320, **kwargs):
         super(Wav2Letter, self).__init__()
         first_stride = 1 if total_rate == -1 else total_rate // upstream_rate
         self.downsample_rate = first_stride
