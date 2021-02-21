@@ -119,8 +119,11 @@ class CharacterTextSlotEncoder(_BaseTextEncoder):
             tokens += [self.vocab_to_idx(v) for v in wrd]
             if iob != 'O' and (i == len(sent)-1 or iobs[i+1] != iob):
                 tokens.append(self.slot2id['E-'+iob])
-        # Manually append eos to the end
-        return tokens + [self.eos_idx]
+            if i == (len(sent)-1):
+                tokens.append(self.eos_idx)
+            else:
+                tokens.append(self.vocab_to_idx(' '))
+        return tokens
 
     def decode(self, idxs, ignore_repeat=False):
         vocabs = []
