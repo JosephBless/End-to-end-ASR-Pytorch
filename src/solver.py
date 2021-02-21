@@ -4,6 +4,7 @@ import abc
 import math
 import yaml
 import torch
+from shutil import copyfile
 from torch.utils.tensorboard import SummaryWriter
 from torch.nn.utils.rnn import pad_sequence
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -50,6 +51,7 @@ class BaseSolver():
                 os.makedirs(paras.ckpdir, exist_ok=True)
                 self.ckpdir = os.path.join(paras.ckpdir, self.exp_name)
                 os.makedirs(self.ckpdir, exist_ok=True)
+                self._backup_config(self.paras.config)
 
                 # Logger settings
                 self.logdir = os.path.join(paras.logdir, self.exp_name)
@@ -72,6 +74,8 @@ class BaseSolver():
                 # Output path
                 os.makedirs(paras.outdir, exist_ok=True)
                 self.ckpdir = os.path.join(paras.outdir, self.exp_name)
+                self._backup_config(self.paras.config)
+                self._backup_config(self.config['src']['config'])
 
             # Load training config to get acoustic feat, text encoder and build model
             self.src_config = yaml.load(
@@ -80,6 +84,9 @@ class BaseSolver():
 
             self.verbose('Evaluating result of tr. config @ {}'.format(
                 config['src']['config']))
+    
+    def _backup_config(self, filepath):
+        copyfile(filepath, f'{self.ckpdir}/{os.path.basename(filepath)}')
 
     def set_upstream(self):
         '''Setup pretrained Upstream model'''
