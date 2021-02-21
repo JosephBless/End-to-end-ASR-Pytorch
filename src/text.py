@@ -365,7 +365,7 @@ class BertTextEncoder(_BaseTextEncoder):
         return 2
 
 
-def load_text_encoder(mode, vocab_file, slots_file):
+def load_text_encoder(mode, vocab_file, slots_file=None):
     if mode == "character":
         return CharacterTextEncoder.load_from_file(vocab_file)
     elif mode == "character-slot":
