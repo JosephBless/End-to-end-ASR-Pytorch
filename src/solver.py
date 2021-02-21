@@ -4,7 +4,7 @@ import abc
 import math
 import yaml
 import torch
-from shutil import copyfile
+from shutil import copyfile, SameFileError
 from torch.utils.tensorboard import SummaryWriter
 from torch.nn.utils.rnn import pad_sequence
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -86,7 +86,10 @@ class BaseSolver():
                 config['src']['config']))
     
     def _backup_config(self, filepath):
-        copyfile(filepath, f'{self.ckpdir}/{os.path.basename(filepath)}')
+        try:
+            copyfile(filepath, f'{self.ckpdir}/{os.path.basename(filepath)}')
+        except SameFileError:
+            pass
 
     def set_upstream(self):
         '''Setup pretrained Upstream model'''
