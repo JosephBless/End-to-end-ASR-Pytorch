@@ -116,8 +116,10 @@ class CharacterTextSlotEncoder(_BaseTextEncoder):
                 wrd = 'AND'
             if iob != 'O' and (i == 0 or iobs[i-1] != iob):
                 tokens.append(self.slot2id['B-'+iob])
+                tokens.append(self.vocab_to_idx(' '))
             tokens += [self.vocab_to_idx(v) for v in wrd]
             if iob != 'O' and (i == len(sent)-1 or iobs[i+1] != iob):
+                tokens.append(self.vocab_to_idx(' '))
                 tokens.append(self.slot2id['E-'+iob])
             if i == (len(sent)-1):
                 tokens.append(self.eos_idx)
