@@ -116,10 +116,8 @@ class CharacterTextSlotEncoder(_BaseTextEncoder):
                 wrd = 'AND'
             if iob != 'O' and (i == 0 or iobs[i-1] != iob):
                 tokens.append(self.slot2id['B-'+iob])
-                tokens.append(self.vocab_to_idx(' '))
             tokens += [self.vocab_to_idx(v) for v in wrd]
             if iob != 'O' and (i == len(sent)-1 or iobs[i+1] != iob):
-                tokens.append(self.vocab_to_idx(' '))
                 tokens.append(self.slot2id['E-'+iob])
             if i == (len(sent)-1):
                 tokens.append(self.eos_idx)
@@ -167,7 +165,13 @@ class CharacterTextSlotEncoder(_BaseTextEncoder):
         if idx < len(self._vocab_list):
             return self._vocab_list[idx]
         else:
-            return self.id2slot[idx]
+            token = self.id2slot[idx]
+            if token[0] == 'B':
+                return token + ' '
+            elif token[0] == 'E':
+                return ' ' + token
+            else:
+                raise ValueError('id2slot get:', token)
 
 
 
