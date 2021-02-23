@@ -162,6 +162,7 @@ class CharacterTextSlotEncoder(_BaseTextEncoder):
         return self._vocab2idx.get(vocab, self.unk_idx)
 
     def idx_to_vocab(self, idx):
+        idx = int(idx)
         if idx < len(self._vocab_list):
             return self._vocab_list[idx]
         else:

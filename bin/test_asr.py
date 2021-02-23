@@ -108,7 +108,7 @@ class Solver(BaseSolver):
         
         self.verbose(self.decoder.create_msg())
         del self.model
-        del self.emb_decoder
+        self.emb_decoder
 
     def greedy_decode(self, dv_set):
         ''' Greedy Decoding '''
@@ -200,10 +200,10 @@ class Solver(BaseSolver):
             ignore_repeat = False
         for name, hyp_seqs, truth in tqdm(results):
             if self.ctc_only and not self.greedy:
-                new_hyp_seqs = [self.tokenizer.decode(hyp, ignore_repeat=False) for hyp in hyp_seqs[:-1]]
+                new_hyp_seqs = [self.tokenizer.decode(hyp, ignore_repeat=True) for hyp in hyp_seqs[:-1]]
                 hyp_seqs = new_hyp_seqs + [self.tokenizer.decode(hyp_seqs[-1], ignore_repeat=True)]
             else:
-                hyp_seqs = [self.tokenizer.decode(hyp) for hyp in hyp_seqs]
+                hyp_seqs = [self.tokenizer.decode(hyp, ignore_repeat=not self.decoder.enable_att) for hyp in hyp_seqs]
             
             truth = self.tokenizer.decode(truth)
             with open(best_path, 'a') as f:
