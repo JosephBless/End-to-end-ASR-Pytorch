@@ -92,6 +92,89 @@ class CharacterTextEncoder(_BaseTextEncoder):
     def idx_to_vocab(self, idx):
         return self._vocab_list[idx]
 
+class CharacterTextSlotEncoder(_BaseTextEncoder):
+    def __init__(self, vocab_list, slots):
+        # Note that vocab_list must not contain <pad>, <eos> and <unk>
+        # <pad>=0, <eos>=1, <unk>=2
+        self._vocab_list = ["<pad>", "<eos>", "<unk>"] + vocab_list
+        self._vocab2idx = {v: idx for idx, v in enumerate(self._vocab_list)}
+        self.slots = slots
+        self.slot2id = {self.slots[i]:(i+len(self._vocab_list)) for i in range(len(self.slots))}
+        self.id2slot = {(i+len(self._vocab_list)):self.slots[i] for i in range(len(self.slots))}
+
+
+    def encode(self, s):
+        # Always strip trailing space, \r and \n
+        sent, iobs = s.strip('\r\n ').split('\t')
+        sent = sent.split(' ')[1:-1]
+        iobs = iobs.split(' ')[1:-1]
+        tokens = []
+        for i, (wrd, iob) in enumerate(zip(sent, iobs)):
+            if wrd in "?!.,;-":
+                continue
+            if wrd == '&':
+                wrd = 'AND'
+            if iob != 'O' and (i == 0 or iobs[i-1] != iob):
+                tokens.append(self.slot2id['B-'+iob])
+            tokens += [self.vocab_to_idx(v) for v in wrd]
+            if iob != 'O' and (i == len(sent)-1 or iobs[i+1] != iob):
+                tokens.append(self.slot2id['E-'+iob])
+            if i == (len(sent)-1):
+                tokens.append(self.eos_idx)
+            else:
+                tokens.append(self.vocab_to_idx(' '))
+        return tokens
+
+    def decode(self, idxs, ignore_repeat=False):
+        vocabs = []
+        for t, idx in enumerate(idxs):
+            v = self.idx_to_vocab(idx)
+            if idx == self.pad_idx or (ignore_repeat and t > 0 and idx == idxs[t-1]):
+                continue
+            elif idx == self.eos_idx:
+                break
+            else:
+                vocabs.append(v)
+        return "".join(vocabs)
+
+    @classmethod
+    def load_from_file(cls, vocab_file, slots_file):
+        with open(vocab_file, "r") as f:
+            # Do not strip space because character based text encoder should
+            # have a space token
+            vocab_list = [line.strip("\r\n") for line in f]
+        org_slots = open(slots_file).read().split('\n')
+        slots = []
+        for slot in org_slots[1:]:
+            slots.append('B-'+slot)
+            slots.append('E-'+slot)
+        return cls(vocab_list, slots)
+
+    @property
+    def vocab_size(self):
+        return len(self._vocab_list) + len(self.slots)
+
+    @property
+    def token_type(self):
+        return 'character-slot'
+
+    def vocab_to_idx(self, vocab):
+        return self._vocab2idx.get(vocab, self.unk_idx)
+
+    def idx_to_vocab(self, idx):
+        idx = int(idx)
+        if idx < len(self._vocab_list):
+            return self._vocab_list[idx]
+        else:
+            token = self.id2slot[idx]
+            if token[0] == 'B':
+                return token + ' '
+            elif token[0] == 'E':
+                return ' ' + token
+            else:
+                raise ValueError('id2slot get:', token)
+
+
 
 class SubwordTextEncoder(_BaseTextEncoder):
     def __init__(self, spm):
@@ -130,6 +213,77 @@ class SubwordTextEncoder(_BaseTextEncoder):
     @property
     def token_type(self):
         return 'subword'
+
+
+class SubwordTextSlotEncoder(_BaseTextEncoder):
+    def __init__(self, spm, slots):
+        if spm.pad_id() != 0 or spm.eos_id() != 1 or spm.unk_id() != 2:
+            raise ValueError(
+                "Please train sentencepiece model with following argument:\n"
+                "--pad_id=0 --eos_id=1 --unk_id=2 --bos_id=-1 --model_type=bpe --eos_piece=<eos>")
+        self.spm = spm
+        self.slots = slots
+        self.slot2id = {self.slots[i]:(i+len(self.spm)) for i in range(len(self.slots))}
+        self.id2slot = {(i+len(self.spm)):self.slots[i] for i in range(len(self.slots))}
+
+    def encode(self, s):
+        sent, iobs = s.strip().split('\t')
+        sent = sent.split(' ')[1:-1]
+        iobs = iobs.split(' ')[1:-1]
+        tokens = []
+        for i, (wrd, iob) in enumerate(zip(sent, iobs)):
+            if wrd in "?!.,;-":
+                continue
+            if wrd == '&':
+                wrd = 'AND'
+            if iob != 'O' and (i == 0 or iobs[i-1] != iob):
+                tokens.append(self.slot2id['B-'+iob])
+            tokens += self.spm.encode_as_ids(wrd)[:-1] #if i != len(sent)-1 else self.spm.encode_as_ids(wrd)
+            if iob != 'O' and (i == len(sent)-1 or iobs[i+1] != iob):
+                tokens.append(self.slot2id['E-'+iob])
+        if tokens[-1] != 1:
+            tokens.append(1)
+        return tokens #self.spm.encode_as_ids(s)
+
+    def decode(self, idxs, ignore_repeat=False):
+        crop_idx = []
+        for t, idx in enumerate(idxs):
+            if idx == self.eos_idx:
+                break
+            elif idx == self.pad_idx or (ignore_repeat and t > 0 and idx == idxs[t-1]):
+                continue
+            else:
+                crop_idx.append(idx)
+        sent = []
+        ret = []
+        for i, x in enumerate(crop_idx):
+            if x >= len(self.spm):
+                ret.append(self.spm.decode_ids(sent) + [self.id2slot[x]])
+            else:
+                sent.append(x)
+        return ret
+
+    @classmethod
+    def load_from_file(cls, filepath, slots_file):
+        import sentencepiece as splib
+        spm = splib.SentencePieceProcessor()
+        spm.load(filepath)
+        spm.set_encode_extra_options(":eos")
+        org_slots = open(slots_file).read().split('\n')
+        slots = []
+        for slot in org_slots[1:]:
+            slots.append('B-'+slot)
+            slots.append('E-'+slot)
+        return cls(spm, slots)
+
+    @property
+    def vocab_size(self):
+        return len(self.spm) + len(self.slots)
+
+    @property
+    def token_type(self):
+        return 'subword-slot'
+
 
 
 class WordTextEncoder(CharacterTextEncoder):
@@ -221,11 +375,15 @@ class BertTextEncoder(_BaseTextEncoder):
         return 2
 
 
-def load_text_encoder(mode, vocab_file):
+def load_text_encoder(mode, vocab_file, slots_file=None):
     if mode == "character":
         return CharacterTextEncoder.load_from_file(vocab_file)
+    elif mode == "character-slot":
+        return CharacterTextSlotEncoder.load_from_file(vocab_file, slots_file)
     elif mode == "subword":
         return SubwordTextEncoder.load_from_file(vocab_file)
+    elif mode == "subword-slot":
+        return SubwordTextSlotEncoder.load_from_file(vocab_file, slots_file)
     elif mode == "word":
         return WordTextEncoder.load_from_file(vocab_file)
     elif mode.startswith("bert-"):

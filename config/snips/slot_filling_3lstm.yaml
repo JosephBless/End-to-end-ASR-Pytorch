@@ -1,0 +1,72 @@
+data:
+  corpus:                                 
+    name: 'Snips'                   # Specify corpus
+    path: 'data/SNIPS'          # Path to raw LibriSpeech dataset
+    train_split: ['train'] # Name of data splits to be used as training set
+    dev_split: ['dev']              # Name of data splits to be used as validation set
+    bucketing: True                       # Enable/Disable bucketing 
+    batch_size: 16
+    eval_batch_size: 16
+  audio:                                  # Attributes of audio feature
+    feat_type: 'fbank'
+    feat_dim:  40
+    frame_length: 25                      # ms
+    frame_shift: 10                       # ms
+    dither: 0                             # random dither audio, 0: no dither
+    apply_cmvn: True
+    delta_order: 2                        # 0: do nothing, 1: add delta, 2: add delta and accelerate
+    delta_window_size: 2
+  text:
+    mode: 'character-slot'                       # 'character'/'word'/'subword'
+    vocab_file: 'tests/sample_data/character.vocab'
+    slots_file: 'data/SNIPS/slots.txt'
+
+hparas:                                   # Experiment hyper-parameters
+  valid_step: 5000
+  max_step: 1000001
+  tf_start: 1.0
+  tf_end: 1.0
+  tf_step: 500000
+  optimizer: 'Adam'
+  lr: 1.0e-4
+  eps: 0.00000001                         # 1e-8
+  lr_scheduler: 'fixed'                   # 'fixed'/'warmup'
+  curriculum: 0
+  gradient_accumulate: 2
+
+# comment the whole specaug config block
+# to disable specaug on representation
+specaug:
+  apply_time_warp: true
+  apply_time_mask: true
+  apply_freq_mask: true
+  time_warp_window: 5
+  num_time_mask: 2
+  num_freq_mask: 2
+
+model:                                    # Model architecture
+  ctc_weight: 1.0                         # Weight for CTC loss
+  encoder:
+    prenet: ''                         # 'vgg'/'cnn'/''
+    # vgg: True                             # 4x reduction on time feature extraction
+    module: 'LSTM'                        # 'LSTM'/'GRU'/'Transformer'
+    bidirection: True
+    dim: [256, 256, 256]
+    dropout: [0.2, 0.2, 0.2]
+    layer_norm: [True, True, True]
+    proj: [True, True, True]      # Linear projection + Tanh after each rnn layer
+    sample_rate: [1, 1, 1]
+    sample_style: 'drop'                  # 'drop'/'concat'
+  attention:
+    mode: 'loc'                           # 'dot'/'loc'
+    dim: 300
+    num_head: 1
+    v_proj: False                         # if False and num_head>1, encoder state will be duplicated for each head
+    temperature: 0.5                      # scaling factor for attention
+    loc_kernel_size: 100                  # just for mode=='loc'
+    loc_kernel_num: 10                    # just for mode=='loc'
+  decoder:
+    module: 'LSTM'                        # 'LSTM'/'GRU'/'Transformer'
+    dim: 512
+    layer: 1
+    dropout: 0

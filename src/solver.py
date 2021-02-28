@@ -4,6 +4,7 @@ import abc
 import math
 import yaml
 import torch
+from shutil import copyfile, SameFileError
 from torch.utils.tensorboard import SummaryWriter
 from torch.nn.utils.rnn import pad_sequence
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -50,6 +51,7 @@ class BaseSolver():
                 os.makedirs(paras.ckpdir, exist_ok=True)
                 self.ckpdir = os.path.join(paras.ckpdir, self.exp_name)
                 os.makedirs(self.ckpdir, exist_ok=True)
+                self._backup_config(self.paras.config)
 
                 # Logger settings
                 self.logdir = os.path.join(paras.logdir, self.exp_name)
@@ -72,6 +74,9 @@ class BaseSolver():
                 # Output path
                 os.makedirs(paras.outdir, exist_ok=True)
                 self.ckpdir = os.path.join(paras.outdir, self.exp_name)
+                os.makedirs(self.ckpdir, exist_ok=True)
+                self._backup_config(self.paras.config)
+                self._backup_config(self.config['src']['config'])
 
             # Load training config to get acoustic feat, text encoder and build model
             self.src_config = yaml.load(
@@ -80,6 +85,12 @@ class BaseSolver():
 
             self.verbose('Evaluating result of tr. config @ {}'.format(
                 config['src']['config']))
+    
+    def _backup_config(self, filepath):
+        try:
+            copyfile(filepath, f'{self.ckpdir}/{os.path.basename(filepath)}')
+        except SameFileError:
+            pass
 
     def set_upstream(self):
         '''Setup pretrained Upstream model'''
@@ -151,25 +162,35 @@ class BaseSolver():
     def load_ckpt(self):
         ''' Load ckpt if --load option is specified '''
 
-        def modify_state_fn(state_dict):
+        def modify_state_fn(state_dict, vocab_size):
             for key in list(state_dict.keys()):
                 value = state_dict[key]
+                new_key = key
                 if self.paras.load_ddp_to_nonddp:
                     new_key = '.'.join(key.split('.')[1:])
                 if self.paras.load_nonddp_to_ddp:
                     new_key = f'module.{key}'
                 state_dict.pop(key)
                 state_dict[new_key] = value
+            if state_dict['ctc_layer.bias'].shape[0] != vocab_size:
+                print('model vocab mismatch:', state_dict['ctc_layer.bias'].shape[0], '!=', vocab_size, flush=True)
+                print('reinit ctc layer!', flush=True)
+                new_bias = torch.zeros(vocab_size).normal_(0.1)
+                new_weight = torch.zeros(vocab_size, state_dict['ctc_layer.weight'].shape[1]).normal_(0.1)
+                new_bias[:state_dict['ctc_layer.bias'].shape[0]].copy_(state_dict['ctc_layer.bias'])
+                new_weight[:state_dict['ctc_layer.weight'].shape[0], :].copy_(state_dict['ctc_layer.weight'])
+                state_dict['ctc_layer.bias'] = new_bias
+                state_dict['ctc_layer.weight'] = new_weight
             return state_dict
 
         if self.paras.load:
             # Load weights
             ckpt = torch.load(
                 self.paras.load, map_location=self.device if self.mode == 'train' else 'cpu')
-            self.model.load_state_dict(modify_state_fn(ckpt['model']))
+            self.model.load_state_dict(modify_state_fn(ckpt['model'], self.model.state_dict()['ctc_layer.bias'].shape[0]))
             if self.emb_decoder is not None:
                 self.emb_decoder.load_state_dict(modify_state_fn(ckpt['emb_decoder']))
-            if hasattr(self, 'upstream'):
+            if hasattr(self, 'upstream') and self.paras.upstream_trainable:
                 self.upstream.load_state_dict(modify_state_fn(ckpt['upstream']))
 
             # Load task-dependent items
@@ -179,8 +200,9 @@ class BaseSolver():
                 if type(v) is float:
                     metric, score = k, v
             if self.mode == 'train':
-                self.step = ckpt['global_step']
-                self.optimizer.load_opt_state_dict(ckpt['optimizer'])
+                if not self.paras.reinit_optimizer:
+                    self.step = ckpt['global_step']
+                    self.optimizer.load_opt_state_dict(ckpt['optimizer'])
                 self.verbose('Load ckpt from {}, restarting at step {} (recorded {} = {:.2f} %)'.format(
                               self.paras.load, self.step, metric, score))
             else:
@@ -198,9 +220,9 @@ class BaseSolver():
         if self.paras.verbose:
             if type(msg) == list:
                 for m in msg:
-                    print('[INFO]', m.ljust(100))
+                    print('[INFO]', m.ljust(100), flush=True)
             else:
-                print('[INFO]', msg.ljust(100))
+                print('[INFO]', msg.ljust(100), flush=True)
 
     def progress(self, msg):
         ''' Verbose function for updating progress on stdout (do not include newline) '''
@@ -208,7 +230,7 @@ class BaseSolver():
 
         if self.paras.verbose:
             sys.stdout.write("\033[K")  # Clear line
-            print('[{}] {}'.format(human_format(self.step), msg), end='\r')
+            print('[{}] {}'.format(human_format(self.step), msg), end='\r', flush=True)
 
     def write_log(self, log_name, log_dict):
         '''
