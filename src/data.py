@@ -68,7 +68,7 @@ def collect_text_batch(batch, mode):
 
 
 def create_dataset(tokenizer, ascending, name, path, bucketing, batch_size, eval_batch_size=None,
-                   train_split=None, dev_split=None, test_split=None):
+                   train_split=None, dev_split=None, test_split=None, text_mode='character'):
     ''' Interface for creating all kinds of dataset'''
 
     if eval_batch_size is None:
@@ -90,9 +90,9 @@ def create_dataset(tokenizer, ascending, name, path, bucketing, batch_size, eval
         bucket_size = batch_size if bucketing and (
             not ascending) else 1  # Ascending without bucketing
         # Do not use bucketing for dev set
-        dv_set = Dataset(path, dev_split, tokenizer, 1)
+        dv_set = Dataset(path, dev_split, tokenizer, 1, text_mode=text_mode)
         tr_set = Dataset(path, train_split, tokenizer,
-                         bucket_size, ascending=ascending)
+                         bucket_size, ascending=ascending, text_mode=text_mode)
         # Messages to show
         msg_list = _data_msg(name, path, train_split.__str__(), len(tr_set),
                              dev_split.__str__(), len(dv_set), batch_size, bucketing)
@@ -102,9 +102,9 @@ def create_dataset(tokenizer, ascending, name, path, bucketing, batch_size, eval
         # Testing model
         mode = 'test'
         # Do not use bucketing for dev set
-        dv_set = Dataset(path, dev_split, tokenizer, 1)
+        dv_set = Dataset(path, dev_split, tokenizer, 1, text_mode=text_mode)
         # Do not use bucketing for test set
-        tt_set = Dataset(path, test_split, tokenizer, 1)
+        tt_set = Dataset(path, test_split, tokenizer, 1, text_mode=text_mode)
         # Messages to show
         msg_list = _data_msg(name, path, dev_split.__str__(), len(dv_set),
                              test_split.__str__(), len(tt_set), batch_size, False)
@@ -113,7 +113,7 @@ def create_dataset(tokenizer, ascending, name, path, bucketing, batch_size, eval
         return dv_set, tt_set, batch_size, eval_batch_size, mode, msg_list
 
 
-def create_textset(tokenizer, train_split, dev_split, name, path, bucketing, batch_size):
+def create_textset(tokenizer, train_split, dev_split, name, path, bucketing, batch_size, text_mode='character'):
     ''' Interface for creating all kinds of text dataset'''
     msg_list = []
 
@@ -129,8 +129,8 @@ def create_textset(tokenizer, train_split, dev_split, name, path, bucketing, bat
     bucket_size = batch_size if bucketing else 1
     tr_loader_bs = 1 if bucketing else batch_size
     # Do not use bucketing for dev set
-    dv_set = Dataset(path, dev_split, tokenizer, 1)
-    tr_set = Dataset(path, train_split, tokenizer, bucket_size)
+    dv_set = Dataset(path, dev_split, tokenizer, 1, text_mode=text_mode)
+    tr_set = Dataset(path, train_split, tokenizer, bucket_size, text_mode=text_mode)
 
     # Messages to show
     msg_list = _data_msg(name, path, train_split.__str__(), len(tr_set),
@@ -157,7 +157,7 @@ def load_dataset(n_jobs, use_gpu, pin_memory, ascending, corpus, audio, text, wa
     tokenizer = load_text_encoder(**text)
     # Dataset (in testing mode, tr_set=dv_set, dv_set=tt_set)
     tr_set, dv_set, tr_loader_bs, dv_loader_bs, mode, data_msg = create_dataset(
-        tokenizer, ascending, **corpus)
+        tokenizer, ascending, **corpus, text_mode=text['mode'])
     # Collect function
     collect_tr = partial(collect_audio_batch,
                          audio_transform=audio_transform, mode=mode)
@@ -190,7 +190,7 @@ def load_textset(n_jobs, use_gpu, pin_memory, corpus, text):
     tokenizer = load_text_encoder(**text)
     # Dataset
     tr_set, dv_set, tr_loader_bs, dv_loader_bs, data_msg = create_textset(
-        tokenizer, **corpus)
+        tokenizer, **corpus, text_mode=text['mode'])
     collect_tr = partial(collect_text_batch, mode='train')
     collect_dv = partial(collect_text_batch, mode='dev')
     # Dataloader (Text data stored in RAM, no need num_workers)

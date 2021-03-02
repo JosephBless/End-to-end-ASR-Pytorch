@@ -12,10 +12,23 @@ REMOVE_TOP_N_TXT = 5000000
 READ_FILE_THREADS = 4
 
 
-def read_text(file):
+def read_text(file, text_mode='character'):
     '''Get transcription of target wave file, 
        it's somewhat redundant for accessing each txt multiplt times,
        but it works fine with multi-thread'''
+    
+    if text_mode == 'phoneme':
+        task_name = file.split('/')[-4]  # dev-clean
+        src = '/'.join(file.split('/')[:-4])
+
+        src_folder = src +'/'+ task_name + '_from_dict/'
+        idx = file.split('/')[-1].split('.')[0]
+        file_phn = src_folder + idx + '.phn'
+
+        with open(file_phn,'r') as f:
+            for line in f: 
+                return line
+
     src_file = '-'.join(file.split('-')[:-1])+'.trans.txt'
     idx = file.split('/')[-1].split('.')[0]
 
@@ -26,7 +39,7 @@ def read_text(file):
 
 
 class LibriDataset(Dataset):
-    def __init__(self, path, split, tokenizer, bucket_size, ascending=False):
+    def __init__(self, path, split, tokenizer, bucket_size, ascending=False, text_mode='character'):
         # Setup
         self.path = path
         self.bucket_size = bucket_size
@@ -39,7 +52,7 @@ class LibriDataset(Dataset):
             file_list += split_list
         # Read text
         text = Parallel(n_jobs=READ_FILE_THREADS)(
-            delayed(read_text)(str(f)) for f in file_list)
+            delayed(read_text)(str(f), text_mode) for f in file_list)
         #text = Parallel(n_jobs=-1)(delayed(tokenizer.encode)(txt) for txt in text)
         text = [tokenizer.encode(txt) for txt in text]
 
@@ -62,7 +75,7 @@ class LibriDataset(Dataset):
 
 
 class LibriTextDataset(Dataset):
-    def __init__(self, path, split, tokenizer, bucket_size):
+    def __init__(self, path, split, tokenizer, bucket_size, text_mode='character'):
         # Setup
         self.path = path
         self.bucket_size = bucket_size
@@ -83,7 +96,7 @@ class LibriTextDataset(Dataset):
 
         # Read text
         text = Parallel(n_jobs=READ_FILE_THREADS)(
-            delayed(read_text)(str(f)) for f in file_list)
+            delayed(read_text)(str(f), text_mode) for f in file_list)
         all_sent.extend(text)
         del text
 
