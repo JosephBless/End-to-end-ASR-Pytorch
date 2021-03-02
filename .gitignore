@@ -128,3 +128,7 @@ run.sh
 # experiment results
 *.pth
 *.csv
+
+ckpt/
+
+
